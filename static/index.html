@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <title>PDF Chatbot UI</title>
+  <style>
+    /* Reset & base */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      max-width: 700px;
+      height: 90vh;
+      margin: 20px auto;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    /* Upload panel */
+    #uploadSection {
+      padding: 16px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #ccc;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #uploadSection input[type="file"] {
+      flex: 1;
+    }
+    #uploadSection button {
+      padding: 8px 16px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #uploadSection button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+    #selectedFiles {
+      margin-left: 12px;
+      font-size: 0.9em;
+      color: #555;
+    }
+
+    /* Chat window */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .bubble {
+      max-width: 75%;
+      padding: 12px;
+      border-radius: 12px;
+      line-height: 1.4;
+      word-wrap: break-word;
+      position: relative;
+    }
+    .user {
+      background: #cce5ff;
+      color: #004085;
+      align-self: flex-end;
+      border-bottom-right-radius: 0;
+    }
+    .bot {
+      background: #d4edda;
+      color: #155724;
+      align-self: flex-start;
+      border-bottom-left-radius: 0;
+    }
+    .source {
+      background: #e2e3e5;
+      color: #6c757d;
+      font-size: 0.8em;
+      align-self: flex-start;
+      border-radius: 8px;
+      font-style: italic;
+      padding: 6px 10px;
+    }
+    .source.table-source {
+      background: #fff3cd;
+      color: #856404;
+      font-style: normal;
+      font-weight: bold;
+    }
+
+    /* Input area */
+    #inputArea {
+      display: flex;
+      padding: 12px 16px;
+      gap: 8px;
+      border-top: 1px solid #ccc;
+      background: #f9f9f9;
+    }
+    #questionInput {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+      font-size: 1em;
+    }
+    #askButton {
+      padding: 10px 18px;
+      background: #28a745;
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    #askButton:disabled {
+      background: #aaa;
+    }
+    #topKSelect {
+      width: 60px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      padding: 6px;
+      background: #fff;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid #ccc;
+      border-top: 2px solid #007bff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="uploadSection">
+    <input id="pdfFiles" type="file" multiple accept="application/pdf" />
+    <button id="uploadBtn" onclick="uploadFiles()">Upload</button>
+    <span id="selectedFiles">No files selected</span>
+  </div>
+
+  <div id="chat"></div>
+
+  <div id="inputArea">
+    <select id="topKSelect">
+      <option value="1">Top 1</option>
+      <option value="2">Top 2</option>
+      <option value="3" selected>Top 3</option>
+      <option value="5">Top 5</option>
+    </select>
+    <input id="questionInput" type="text" placeholder="Ask me anything…" />
+    <button id="askButton" onclick="askQuestion()">Send</button>
+  </div>
+
+  <script>
+    const apiBase = "http://127.0.0.1:8001";
+
+    // reflect selected filenames
+    document.getElementById("pdfFiles").addEventListener("change", () => {
+      const files = Array.from(document.getElementById("pdfFiles").files)
+                         .map(f => f.name).join(", ");
+      document.getElementById("selectedFiles").textContent =
+        files || "No files selected";
+    });
+
+    async function uploadFiles() {
+      const input = document.getElementById("pdfFiles");
+      const btn     = document.getElementById("uploadBtn");
+      if (!input.files.length) return alert("Select at least one PDF.");
+
+      btn.disabled = true;
+      btn.textContent = "";
+      btn.appendChild(Object.assign(document.createElement("span"), { className: "spinner" }));
+
+      const form = new FormData();
+      for (const f of input.files) form.append("files", f);
+
+      try {
+        const res = await fetch(apiBase + "/upload", { method: "POST", body: form });
+        if (!res.ok) throw await res.json();
+        const data = await res.json();
+        appendSystem(`✅ ${data.message} (${data.chunks} chunks)`);
+      } catch (err) {
+        appendSystem(`❌ Upload failed: ${err.detail||err}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Upload";
+      }
+    }
+
+    async function askQuestion() {
+      const qInput = document.getElementById("questionInput");
+      const question = qInput.value.trim();
+      if (!question) return alert("Type a question!");
+
+      const top_k = Number(document.getElementById("topKSelect").value);
+      appendBubble("You", question, "user");
+      qInput.value = "";
+
+      const askBtn = document.getElementById("askButton");
+      askBtn.disabled = true;
+      askBtn.textContent = "";
+      askBtn.appendChild(Object.assign(document.createElement("span"), { className: "spinner" }));
+
+      try {
+        const res = await fetch(apiBase + "/ask", {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ question, top_k })
+        });
+        if (!res.ok) throw await res.json();
+        const { answer, sources } = await res.json();
+        appendBubble("Bot", answer, "bot");
+
+        // render sources
+        sources.forEach(src => {
+          const cls = src.toLowerCase().includes("table")
+                    ? "source table-source"
+                    : "source";
+          appendBubble("Source", src, cls);
+        });
+
+      } catch (err) {
+        appendBubble("Bot", `Error: ${err.detail||err}`, "bot");
+      } finally {
+        askBtn.disabled = false;
+        askBtn.textContent = "Send";
+      }
+    }
+
+    function appendBubble(who, message, cls) {
+      const chat = document.getElementById("chat");
+      const wrap = document.createElement("div");
+      wrap.className = `bubble ${cls}`;
+      // render markdown (incl. images)
+      wrap.innerHTML = `<strong>${who}:</strong><br>${marked.parse(message)}`;
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function appendSystem(text) {
+      appendBubble("System", text, "bot");
+    }
+  </script>
+</body>
+</html>

@@ -209,8 +209,7 @@ mongod                   # Start local instance
 # 1. Create account at https://www.mongodb.com/cloud/atlas
 # 2. Create a cluster
 # 3. Get connection string
-# 4. Set in .env:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/pdf_rag_chatbot
+# 4. Set in .env (see .env.example for format)
 ```
 
 ## ⚙️ Configuration

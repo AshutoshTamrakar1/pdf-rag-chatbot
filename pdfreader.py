@@ -40,10 +40,6 @@ app.include_router(chat_router, prefix="/chat", tags=["Chat Operations"])
 app.include_router(mindmap_router, prefix="/mindmap", tags=["Mindmap & Podcast Operations"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 
-# Logger configuration
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
 # Startup event
 @app.on_event("startup")
 async def startup_event():

@@ -1,0 +1,98 @@
+# ==============================================================================
+# PDF RAG Chatbot v2.0 - Python Dependencies
+# ==============================================================================
+# This file contains all required Python packages for the PDF RAG Chatbot project.
+# Install using: pip install -r requirements.txt
+
+# ==============================================================================
+# WEB FRAMEWORK & API
+# ==============================================================================
+fastapi==0.104.1
+uvicorn==0.24.0
+websockets==12.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# ==============================================================================
+# DATA & CONFIGURATION
+# ==============================================================================
+pydantic==2.4.2
+pydantic-settings==2.0.3
+pydantic[email]==2.4.2
+python-dotenv==1.0.0
+
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+pymongo==4.6.0
+
+# ==============================================================================
+# AUTHENTICATION & SECURITY
+# ==============================================================================
+PyJWT==2.8.1
+bcrypt==4.1.1
+cryptography==41.0.7
+
+# ==============================================================================
+# MACHINE LEARNING & NLP
+# ==============================================================================
+torch==2.1.1
+sentence-transformers==2.2.2
+
+# ==============================================================================
+# DOCUMENT PROCESSING
+# ==============================================================================
+PyMuPDF==1.23.8
+
+# ==============================================================================
+# LLM & LANGUAGE MODEL INTEGRATION
+# ==============================================================================
+langchain==0.1.2
+langchain-ollama==0.0.1
+
+# ==============================================================================
+# AUDIO PROCESSING
+# ==============================================================================
+pyttsx3==2.90
+faster-whisper==1.0.0
+SpeechRecognition==3.10.0
+pydub==0.25.1
+
+# ==============================================================================
+# UTILITIES
+# ==============================================================================
+requests==2.31.0
+python-dateutil==2.8.2
+
+# ==============================================================================
+# DEVELOPMENT & TESTING (Optional)
+# ==============================================================================
+# Uncomment these for development
+# pytest==7.4.3
+# pytest-asyncio==0.21.1
+# black==23.11.0
+# flake8==6.1.0
+# isort==5.12.0
+# mypy==1.7.0
+
+# ==============================================================================
+# NOTES
+# ==============================================================================
+# 1. Ollama (LLM engine) must be installed separately and run as a service
+#    Download from: https://ollama.ai
+#
+# 2. Required Ollama models (pull manually or auto-download):
+#    - ollama pull llama3
+#    - ollama pull gemma
+#    - ollama pull phi3
+#
+# 3. For production, consider:
+#    - Using a proper session store (Redis) instead of in-memory
+#    - Using PostgreSQL instead of MongoDB if relational data is preferred
+#    - Running Ollama in a container
+#    - Using a proper task queue (Celery) for async tasks
+#
+# 4. Audio processing requires system dependencies:
+#    - Linux: sudo apt-get install portaudio19-dev ffmpeg
+#    - macOS: brew install portaudio ffmpeg
+#    - Windows: Install ffmpeg and add to PATH

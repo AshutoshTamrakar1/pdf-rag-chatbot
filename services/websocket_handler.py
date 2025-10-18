@@ -9,7 +9,8 @@ import uuid
 from config import Settings, get_settings
 from .models import (
     ChatRequest, 
-    MindmapRequest, 
+    MindmapRequest,
+    PodcastRequest,
     WebSocketMessage, 
     WebSocketResponse
 )
@@ -118,6 +119,196 @@ class ConnectionManager:
             "title": "New Chat"
         })
         logger.info(f"Created new chat session: {chat_session_id}")
+
+    async def _handle_chat(
+        self,
+        session_id: str,
+        message: WebSocketMessage
+    ) -> None:
+        """
+        Handle chat messages from client.
+        Dispatches to appropriate chat service based on message parameters.
+        """
+        try:
+            user_id = validate_session(session_id, active_sessions)
+            
+            # Parse chat request from message payload
+            chat_request = ChatRequest(**message.payload)
+            
+            # Get or create chat session if needed
+            chat_session = get_chat_session_by_id(chat_request.chat_session_id)
+            if not chat_session:
+                logger.error(f"Chat session not found: {chat_request.chat_session_id}")
+                await self.send_json(session_id, {
+                    "type": "error",
+                    "error": "Chat session not found"
+                })
+                return
+            
+            # Send status update to client
+            await self.send_json(session_id, {
+                "type": "chat_status",
+                "status": "processing"
+            })
+            
+            # Dispatch to appropriate chat handler based on source count
+            if len(chat_session.get("sources", [])) == 0:
+                # General chat without context
+                response = await chat_completion_LlamaModel_ws(chat_request.question)
+            elif len(chat_session.get("sources", [])) == 1:
+                # Single PDF chat with RAG
+                pdf_source = chat_session["sources"][0]
+                response = await chat_completion_with_pdf_ws(
+                    chat_request.question,
+                    pdf_source.get("path", "")
+                )
+            else:
+                # Multiple PDFs chat with RAG
+                pdf_paths = [source.get("path", "") for source in chat_session.get("sources", [])]
+                response = await chat_completion_with_multiple_pdfs_ws(
+                    chat_request.question,
+                    pdf_paths
+                )
+            
+            # Send response to client
+            await self.send_json(session_id, {
+                "type": "chat_response",
+                "response": response,
+                "chat_session_id": chat_request.chat_session_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"Chat response sent for session: {chat_request.chat_session_id}")
+            
+        except InvalidSessionError as e:
+            logger.warning(f"Invalid session: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Session expired or invalid"
+            })
+        except Exception as e:
+            logger.exception(f"Error handling chat message: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Failed to process chat message"
+            })
+
+    async def _handle_mindmap(
+        self,
+        session_id: str,
+        message: WebSocketMessage
+    ) -> None:
+        """
+        Handle mindmap generation requests.
+        Generates a mindmap from uploaded PDF sources.
+        """
+        try:
+            user_id = validate_session(session_id, active_sessions)
+            
+            # Parse mindmap request
+            mindmap_request = MindmapRequest(**message.payload)
+            
+            # Get chat session with sources
+            chat_session = get_chat_session_by_id(mindmap_request.chat_session_id)
+            if not chat_session:
+                logger.error(f"Chat session not found: {mindmap_request.chat_session_id}")
+                await self.send_json(session_id, {
+                    "type": "error",
+                    "error": "Chat session not found"
+                })
+                return
+            
+            # Check if sources exist
+            sources = chat_session.get("sources", [])
+            if not sources:
+                logger.error(f"No sources found for mindmap generation")
+                await self.send_json(session_id, {
+                    "type": "error",
+                    "error": "No PDF sources available for mindmap generation"
+                })
+                return
+            
+            # Send status update
+            await self.send_json(session_id, {
+                "type": "mindmap_status",
+                "status": "generating"
+            })
+            
+            # Generate mindmap
+            pdf_paths = [source.get("path", "") for source in sources]
+            mindmap_response = await generate_mindmap(mindmap_request, pdf_paths)
+            
+            # Send response
+            await self.send_json(session_id, {
+                "type": "mindmap_response",
+                "mindmap": mindmap_response.mindmap_md,
+                "chat_session_id": mindmap_request.chat_session_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"Mindmap generated for session: {mindmap_request.chat_session_id}")
+            
+        except InvalidSessionError as e:
+            logger.warning(f"Invalid session: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Session expired or invalid"
+            })
+        except Exception as e:
+            logger.exception(f"Error handling mindmap request: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Failed to generate mindmap"
+            })
+
+    async def _handle_podcast(
+        self,
+        session_id: str,
+        message: WebSocketMessage
+    ) -> None:
+        """
+        Handle podcast generation requests.
+        Generates podcast audio from mindmap content.
+        """
+        try:
+            user_id = validate_session(session_id, active_sessions)
+            
+            # Parse podcast request
+            podcast_request_data = message.payload
+            podcast_request = PodcastRequest(**podcast_request_data)
+            
+            # Send status update
+            await self.send_json(session_id, {
+                "type": "podcast_status",
+                "status": "generating"
+            })
+            
+            # Generate podcast
+            podcast_response = await generate_podcast(podcast_request)
+            
+            # Send response with audio data
+            await self.send_json(session_id, {
+                "type": "podcast_response",
+                "audio_url": podcast_response.audio_url,
+                "duration": podcast_response.duration,
+                "title": podcast_response.title,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"Podcast generated and sent to client: {session_id}")
+            
+        except InvalidSessionError as e:
+            logger.warning(f"Invalid session: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Session expired or invalid"
+            })
+        except Exception as e:
+            logger.exception(f"Error handling podcast request: {e}")
+            await self.send_json(session_id, {
+                "type": "error",
+                "error": "Failed to generate podcast"
+            })
 
 manager = ConnectionManager()
 

@@ -15,21 +15,24 @@ class MessageType(str, Enum):
 
 class BaseRequest(BaseModel):
     session_id: str = Field(..., description="Active session ID")
-    thread_id: str = Field(..., description="Thread ID")
+    thread_id: Optional[str] = Field(None, description="Thread ID")
+    chat_session_id: Optional[str] = Field(None, description="Chat session ID (alias for thread_id)")
+    source_id: Optional[str] = Field(None, description="Source document ID")
+    
+    @validator("thread_id", always=True, pre=True)
+    def populate_thread_id(cls, v, values):
+        """Use chat_session_id as thread_id if thread_id not provided"""
+        if v:
+            return v
+        return values.get("chat_session_id")
 
 class ChatRequest(BaseModel):
     session_id: str
-    chat_session_id: Optional[str] = None
+    chat_session_id: str  # Make it required
     user_input: str
     active_source_ids: List[str] = []
-    # Optionally keep thread_id for backward compatibility, but always use chat_session_id
+    # Optionally keep thread_id for backward compatibility
     thread_id: Optional[str] = None
-
-    @validator("chat_session_id", always=True, pre=True)
-    def populate_chat_session_id(cls, v, values):
-        if v:
-            return v
-        return values.get("thread_id")
 
 class ChatResponse(BaseModel):
     answer: str
@@ -38,26 +41,29 @@ class ChatResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class MindmapRequest(BaseRequest):
-    source_id: str = Field(..., description="Source document ID")
+    """Mindmap generation request - inherits session_id, thread_id, chat_session_id, source_id from BaseRequest"""
+    pass
 
 class MindmapResponse(BaseModel):
     status: str
     markdown: str
     estimated_time: int
-    thread_id: str
-    source_id: str
+    thread_id: Optional[str] = None
+    chat_session_id: Optional[str] = None
+    source_id: Optional[str] = None
     file_path: Optional[str] = None
 
 class PodcastRequest(BaseRequest):
-    source_id: str = Field(..., description="Source document ID")
+    """Podcast generation request - inherits session_id, thread_id, chat_session_id, source_id from BaseRequest"""
     mindmap_id: Optional[str] = None
 
 class PodcastResponse(BaseModel):
     status: str
     data: Dict[str, Any]
     estimated_time: int
-    thread_id: str
-    source_id: str
+    thread_id: Optional[str] = None
+    chat_session_id: Optional[str] = None
+    source_id: Optional[str] = None
     audio_path: Optional[str] = None
 
 class WebSocketMessage(BaseModel):

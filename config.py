@@ -1,9 +1,9 @@
-import os
+import logging
 from typing import Optional, List
-from pydantic import BaseSettings, validator, Field
-from logging_config import get_logger
+from pydantic_settings import BaseSettings
+from pydantic import validator, Field
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # CONFIGURATION SETTINGS - Centralized Environment Configuration

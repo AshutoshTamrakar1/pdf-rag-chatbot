@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr, Field, validator
-import jwt
+import jwt as pyjwt
 import bcrypt
 from logging_config import get_logger, log_exceptions
 from db_manager import (
@@ -142,7 +142,7 @@ def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None)
         "iat": datetime.utcnow()
     }
     
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     expires_in = int(expires_delta.total_seconds())
     
     logger.info(f"Access token created for user: {user_id}")
@@ -162,7 +162,7 @@ def create_refresh_token(user_id: str, expires_delta: Optional[timedelta] = None
         "iat": datetime.utcnow()
     }
     
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     logger.info(f"Refresh token created for user: {user_id}")
     return token
 
@@ -170,7 +170,7 @@ def create_refresh_token(user_id: str, expires_delta: Optional[timedelta] = None
 def verify_token(token: str, token_type: str = "access") -> Optional[str]:
     """Verify JWT token and return user_id"""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
         token_type_in_payload = payload.get("type")
         
@@ -179,10 +179,10 @@ def verify_token(token: str, token_type: str = "access") -> Optional[str]:
             return None
         
         return user_id
-    except jwt.ExpiredSignatureError:
+    except pyjwt.ExpiredSignatureError:
         logger.warning("Token has expired")
         return None
-    except jwt.InvalidTokenError as e:
+    except pyjwt.InvalidTokenError as e:
         logger.warning(f"Invalid token: {e}")
         return None
 
@@ -271,7 +271,7 @@ def cleanup_old_sessions(max_age_hours: int = 24) -> int:
 # AUTHENTICATION ROUTES
 # ============================================================================
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(tags=["Authentication"])
 
 
 @router.post("/register", response_model=UserRegisterResponse, status_code=status.HTTP_201_CREATED)

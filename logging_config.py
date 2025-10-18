@@ -59,28 +59,36 @@ def get_logger(name: str):
     return logging.getLogger(name)
 
 
-def log_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
+def log_exceptions(_func=None, logger: Optional[logging.Logger] = None):
     """
-    Decorator to log exceptions raised inside functions.
-    Works with sync and async functions.
+    Decorator that logs unhandled exceptions. Usable as:
+      @log_exceptions
+    or
+      @log_exceptions(logger)
     """
-    if asyncio.iscoroutinefunction(func):
+    def _decorator(func):
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            logger = get_logger(func.__module__)
+        async def _async_wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                logger.exception("Unhandled exception in %s: %s", func.__name__, e)
+                log = logger or logging.getLogger(func.__module__)
+                log.exception("Unhandled exception in %s: %s", getattr(func, "__name__", str(func)), e)
                 raise
-        return async_wrapper
-    else:
+
         @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            logger = get_logger(func.__module__)
+        def _sync_wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.exception("Unhandled exception in %s: %s", func.__name__, e)
+                log = logger or logging.getLogger(func.__module__)
+                log.exception("Unhandled exception in %s: %s", getattr(func, "__name__", str(func)), e)
                 raise
-        return sync_wrapper
+
+        return _async_wrapper if asyncio.iscoroutinefunction(func) else _sync_wrapper
+
+    # If used as @log_exceptions without args
+    if callable(_func):
+        return _decorator(_func)
+    # If used as @log_exceptions(logger) or @log_exceptions()
+    return _decorator

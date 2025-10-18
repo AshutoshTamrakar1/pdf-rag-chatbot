@@ -24,7 +24,7 @@ import uuid
 from logging_config import get_logger, log_exceptions
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/chat", tags=["Chat Operations"])
+router = APIRouter(tags=["Chat Operations"])
 
 def process_chat_completion(
     user_input: str,
@@ -84,6 +84,11 @@ async def send_chat(
     model: Optional[str] = None
 ) -> ChatResponse:
     """Handle chat messages. Optional query param `model` can be 'gemma' to use Gemma for general chat."""
+    logger.info(f"Chat request received:")
+    logger.info(f"  - session_id: {request.session_id[:20] if request.session_id else 'None'}...")
+    logger.info(f"  - chat_session_id: {request.chat_session_id}")
+    logger.info(f"  - user_input: {request.user_input[:50] if request.user_input else 'None'}...")
+    logger.info(f"  - active_source_ids: {request.active_source_ids}")
     logger.info(f"Processing chat request for chat session: {request.chat_session_id}; model={model}")
 
     try:

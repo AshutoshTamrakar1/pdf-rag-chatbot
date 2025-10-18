@@ -1,6 +1,8 @@
 import os
 import json
 from typing import Any, Dict, Optional
+from pathlib import Path
+from fastapi import HTTPException, status
 
 # centralized logging + decorator import
 from logging_config import get_logger, log_exceptions
@@ -31,6 +33,9 @@ def validate_session(session_id: str, active_sessions: Dict) -> str:
 
 def ensure_upload_dir(user_id: str, thread_id: str, source_id: str, base_dir: Path) -> Path:
     """Ensure upload directory exists and return path"""
+    # Convert to Path if it's a string
+    if isinstance(base_dir, str):
+        base_dir = Path(base_dir)
     upload_dir = base_dir / user_id / thread_id / source_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     return upload_dir

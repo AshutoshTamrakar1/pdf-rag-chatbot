@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any, Optional
 import logging
 from pathlib import Path
+from datetime import datetime
 
 from config import Settings, get_settings
 from .models import MindmapRequest, MindmapResponse, PodcastRequest, PodcastResponse
@@ -21,7 +22,7 @@ from auth import active_sessions
 from logging_config import get_logger, log_exceptions
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/mindmap", tags=["Mindmap & Podcast Operations"])
+router = APIRouter(tags=["Mindmap & Podcast Operations"])
 
 @router.post("/", response_model=MindmapResponse)
 @log_exceptions
@@ -124,30 +125,50 @@ async def generate_podcast(
         estimated_time = estimate_podcast_generation_time(mindmap_md)
         logger.info(f"Estimated podcast generation time: {estimated_time} seconds")
 
+        logger.info("Starting podcast generation...")
         podcast_data, error = await generate_podcast_from_mindmap(
-            mindmap_md,
-            api_url=settings.PODCAST_API_URL
+            mindmap_md
         )
+        logger.info(f"Podcast generation complete. Error: {error}")
         
         if error:
             logger.error(f"Error generating podcast: {error}")
             raise HTTPException(status_code=500, detail=error)
 
-        # Update database
+        # Store audio data along with metadata
+        # podcast_data contains: script, audio_base64, audio_player
+        podcast_metadata = {
+            "status": "generated",
+            "generated_at": datetime.utcnow().isoformat(),
+            "script": podcast_data.get("script", ""),
+            "audio_base64": podcast_data.get("audio_base64", ""),
+            "has_audio": bool(podcast_data.get("audio_base64"))
+        }
+        
+        logger.info(f"Updating database with podcast metadata for source {request.source_id}")
+        # Update database with podcast data (now includes audio)
         update_source_field(
             request.chat_session_id,
             request.source_id,
-            {"podcast.data": podcast_data}
+            {"podcast": podcast_metadata}
         )
+        logger.info(f"Database updated successfully")
 
-        logger.info("Podcast generated successfully")
-        return PodcastResponse(
+        logger.info("Podcast generated successfully - preparing response")
+        response = PodcastResponse(
             status="success",
-            data=podcast_data,
+            data={
+                "status": "generated",
+                "script": podcast_data.get("script", ""),
+                "audio_base64": podcast_data.get("audio_base64", ""),
+                "generated_at": datetime.utcnow().isoformat()
+            },
             estimated_time=estimated_time,
             chat_session_id=request.chat_session_id,
             source_id=request.source_id
         )
+        logger.info(f"Returning podcast response with audio data")
+        return response
 
     except Exception as e:
         logger.error(f"Error in podcast generation: {str(e)}", exc_info=True)

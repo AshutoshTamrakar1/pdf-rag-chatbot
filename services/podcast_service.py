@@ -9,7 +9,7 @@ from config import get_settings
 from logging_config import get_logger, log_exceptions
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/podcast", tags=["Podcast Operations"])
+router = APIRouter(tags=["Podcast Operations"])
 
 class PodcastRequest(BaseModel):
     session_id: str

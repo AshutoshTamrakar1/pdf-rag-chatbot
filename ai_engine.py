@@ -20,23 +20,25 @@ gemma_llm = OllamaLLM(model="gemma", temperature=0.1)
 phi3_llm = OllamaLLM(model="phi3", temperature=0.1)
 
 # --- Podcast Generation ---
-PODCAST_SCRIPT_PROMPT_TEMPLATE = """You are a scriptwriter for a friendly podcast between two people named Jess and Leo. You can insert emotion tags into your text to add expressiveness: <laugh> or <sigh>.
-Write a conversational dialogue where Jess and Leo casually discuss the following mindmap topics. Make it natural, curious, engaging, and fun. They should explain things to each other in simple terms, ask questions, and build on each other's thoughts. Feel free to add small jokes, analogies, or enthusiasm like real podcast hosts. Follow these rules:
--Start the conversation with welcoming to Our podcast.
--End the podcast with a concluding statement which promotes the functionality of the podcast, saying "if you want to include this feature in any one of your applications, contact the  Our team".
--Ask questions and build on each other's thoughts.
--Use limited emotion tags like <laugh> or <sigh>.
--Do not use any bold, italic, etc.
--Avoid using punctuations and commas.
--Always follow the conversation dialogue flavor and template:
-    Jess:
-    Leo:
--Never put the speaker's name alone on one line.
--End the podcast by thanking the audience and saying "If you want to include this feature in any one of your applications contact the  Our team".
---- TOPIC SUMMARY ---
-(mindmap md)
-------------------------
-Start the dialogue now without any other statement.
+PODCAST_SCRIPT_PROMPT_TEMPLATE = """You are a professional podcast scriptwriter. Create an engaging, informative dialogue between two podcast hosts named Jess and Leo discussing the topics below.
+
+RULES:
+1. Write natural, conversational dialogue that explains concepts clearly
+2. Include questions and follow-up discussions that build understanding
+3. Use proper grammar and punctuation
+4. Format EXACTLY as: Jess: [dialogue] Leo: [dialogue]
+5. Each speaker should have 2-4 sentences per turn
+6. Make it educational yet entertaining - like a real podcast
+7. Include brief [laughs] or [pause] for natural flow
+8. Start with a greeting: "Welcome to our podcast about..."
+9. End with: "Thanks for listening! If you'd like to implement this content in your application, contact our team."
+
+TOPICS TO DISCUSS:
+{mindmap_md}
+
+IMPORTANT: Create a coherent discussion that covers the main points from the topics above. Make it sound like real podcast hosts discussing this topic naturally.
+
+Now write the podcast script:
 """
 
 # --- Estimation functions ---
@@ -203,7 +205,8 @@ async def generate_podcast_from_mindmap(mindmap_md: str) -> Tuple[Optional[Dict[
     logger.info("PodcastGen: Generating podcast script from mindmap markdown.")
     script_prompt = PODCAST_SCRIPT_PROMPT_TEMPLATE.format(mindmap_md=mindmap_md)
     try:
-        response = await asyncio.to_thread(phi3_llm.generate, [script_prompt])
+        # Use llama3 instead of phi3 for better coherence in long-form content
+        response = await asyncio.to_thread(llama3_llm.generate, [script_prompt])
         script = response.generations[0][0].text.strip()
         logger.info("PodcastGen: Script generated successfully.")
     except Exception as e:

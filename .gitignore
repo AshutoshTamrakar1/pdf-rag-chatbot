@@ -10,3 +10,7 @@ __pycache__/
 # Local env and generated summary
 .env.example
 COMPLETION_SUMMARY.md
+
+# Uploaded files and temporary data
+uploads/
+logs/

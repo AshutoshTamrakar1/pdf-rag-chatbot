@@ -8,7 +8,7 @@ from config import get_settings
 from logging_config import get_logger, log_exceptions
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/stt", tags=["Speech-to-Text Operations"])
+router = APIRouter(tags=["Speech-to-Text Operations"])
 
 class STTResponse(BaseModel):
     status: str

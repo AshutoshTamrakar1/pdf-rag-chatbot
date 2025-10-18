@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from pathlib import Path
 import shutil
+from datetime import datetime
 
 from config import Settings, get_settings
 from .exceptions import InvalidSessionError, ThreadNotFoundError
@@ -11,14 +12,49 @@ from db_manager import (
     add_source_to_chat_session,
     add_filename_to_uploaded_list,
     update_chat_session_field,
-    get_chat_session_by_id
+    get_chat_session_by_id,
+    create_chat_session_in_db
 )
 from auth import active_sessions
 import uuid
 from logging_config import get_logger, log_exceptions
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/pdf", tags=["PDF Operations"])
+router = APIRouter(tags=["PDF Operations"])
+
+@router.post("/session")
+@log_exceptions
+async def create_chat_session(
+    session_id: str = Form(...),
+    settings: Settings = Depends(get_settings)
+):
+    """Create a new chat session"""
+    logger.info(f"Creating new chat session for session: {session_id}")
+    
+    try:
+        user_id = validate_session(session_id, active_sessions)
+        chat_session_id = str(uuid.uuid4())
+        
+        new_chat_session = {
+            "id": chat_session_id,
+            "user_id": user_id,
+            "title": "New Chat",
+            "created_at": datetime.utcnow().isoformat(),
+            "messages": [],
+            "sources": []
+        }
+        
+        create_chat_session_in_db(new_chat_session)
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "chat_session_id": chat_session_id,
+                "title": "New Chat"
+            }
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to create chat session")
 
 @router.post("/upload")
 @log_exceptions
@@ -32,13 +68,19 @@ async def upload_pdf(
     logger.info(f"Processing PDF upload: {file.filename} for chat session {chat_session_id}")
     
     try:
+        logger.debug(f"Validating session: {session_id[:20]}...")
         user_id = validate_session(session_id, active_sessions)
+        logger.debug(f"Session valid, user_id: {user_id}")
+        
+        logger.debug(f"Fetching chat session: {chat_session_id}")
         chat_session_data = get_chat_session_by_id(chat_session_id, user_id)
         
         if not chat_session_data:
+            logger.error(f"Chat session not found: {chat_session_id}")
             raise ThreadNotFoundError()
 
         source_id = str(uuid.uuid4())
+        logger.debug(f"Creating upload directory for source: {source_id}")
         upload_dir = ensure_upload_dir(
             user_id, chat_session_id, source_id, settings.UPLOAD_DIR
         )
@@ -68,6 +110,7 @@ async def upload_pdf(
             update_chat_session_field(chat_session_id, {'title': new_title})
             logger.info(f"Updated chat session title to: {new_title}")
 
+        logger.info(f"PDF upload successful: {file.filename}")
         return JSONResponse(
             status_code=200,
             content={
@@ -78,6 +121,9 @@ async def upload_pdf(
             }
         )
 
-    except Exception:
-        # decorator logs full traceback
-        raise HTTPException(status_code=500, detail="Internal server error during PDF upload")
+    except HTTPException:
+        # Re-raise HTTP exceptions (like ThreadNotFoundError)
+        raise
+    except Exception as e:
+        logger.error(f"PDF upload error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

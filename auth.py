@@ -11,6 +11,8 @@ from db_manager import (
     create_user,
     get_user_by_id,
     update_user_last_login,
+    create_session as create_session_in_db,
+    get_session as get_session_from_db,
     COLLECTION_USERS
 )
 
@@ -192,15 +194,25 @@ def verify_token(token: str, token_type: str = "access") -> Optional[str]:
 # ============================================================================
 
 def create_session(user_id: str) -> str:
-    """Create a new session for user"""
+    """Create a new session for user (stores both in-memory and database)"""
     session_id = str(uuid.uuid4())
     
-    active_sessions[session_id] = {
+    session_data = {
+        "session_id": session_id,
         "user_id": user_id,
         "created_at": datetime.utcnow().isoformat(),
         "last_activity": datetime.utcnow().isoformat(),
         "active": True
     }
+    
+    # Store in memory for fast access
+    active_sessions[session_id] = session_data
+    
+    # Store in database for persistence
+    try:
+        create_session_in_db(session_data)
+    except Exception as e:
+        logger.error(f"Failed to store session in database: {e}")
     
     logger.info(f"Session created: {session_id} for user: {user_id}")
     return session_id

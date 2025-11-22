@@ -228,7 +228,7 @@ HOST=0.0.0.0
 PORT=8000
 
 # Database
-MONGODB_URI=mongodb://localhost:27017
+MONGODB_URI=mongodb://localhost:27017/chatbot
 MONGODB_DB_NAME=pdf_rag_chatbot
 
 # Authentication (Change in production!)
@@ -687,7 +687,7 @@ mongod --version
 mongod --dbpath /path/to/data  # Start MongoDB
 
 # Verify connection string in .env
-# MONGODB_URI=mongodb://localhost:27017
+# MONGODB_URI=mongodb://localhost:27017/chatbot
 ```
 
 #### 2. Ollama Not Found

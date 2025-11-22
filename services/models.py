@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
     chat_session_id: str  # Make it required
     user_input: str
     active_source_ids: List[str] = []
+    model: Optional[str] = "llama3"  # Model to use: llama3, gemma, phi3
     # Optionally keep thread_id for backward compatibility
     thread_id: Optional[str] = None
 

@@ -17,6 +17,8 @@ from ai_engine import (
     chat_completion_Gemma_ws,
     chat_completion_with_pdf_ws,
     chat_completion_with_multiple_pdfs_ws,
+    get_available_models,
+    generate_chat_title,
     HISTORY_LENGTH
 )
 from auth import active_sessions
@@ -41,7 +43,25 @@ def process_chat_completion(
     """
     logger.debug(f"Processing chat with {len(active_source_ids)} active sources; model={model}")
 
-    history: List[Dict[str, str]] = chat_session_data.get("messages", []) or []
+    # Get chat turns and convert to history format expected by AI engine
+    raw_messages = chat_session_data.get("messages", []) or []
+    logger.debug(f"Retrieved {len(raw_messages)} raw messages from chat session")
+    history: List[Dict[str, str]] = []
+    
+    # Convert from {user_query, assistant_response} to [{role, content}] format
+    for msg in raw_messages:
+        if isinstance(msg, dict):
+            # If already in correct format
+            if "role" in msg and "content" in msg:
+                history.append(msg)
+            # If in database format (turns)
+            elif "user_query" in msg or "assistant_response" in msg:
+                if "user_query" in msg and msg["user_query"]:
+                    history.append({"role": "user", "content": msg["user_query"]})
+                if "assistant_response" in msg and msg["assistant_response"]:
+                    history.append({"role": "assistant", "content": msg["assistant_response"]})
+    
+    logger.debug(f"Converted to {len(history)} history messages in [{{'role', 'content'}}] format")
 
     if len(active_source_ids) == 1:
         source_data = next(
@@ -54,11 +74,12 @@ def process_chat_completion(
                 yield None, "Source document not found"
             return _err()
 
-        # single-PDF RAG uses llama3-based RAG
+        # single-PDF RAG with selected model
         return chat_completion_with_pdf_ws(
             user_input,
             history,
-            source_data["filepath"]
+            source_data["filepath"],
+            model=model or "llama3"
         )
     elif len(active_source_ids) > 1:
         pdf_paths = [
@@ -68,28 +89,32 @@ def process_chat_completion(
         return chat_completion_with_multiple_pdfs_ws(
             user_input,
             history,
-            pdf_paths
+            pdf_paths,
+            model=model or "llama3"
         )
     else:
-        # general chat: allow switching between llama3 and gemma
+        # general chat: use selected model
         if model and model.lower() == "gemma":
             return chat_completion_Gemma_ws(user_input, history)
+        elif model and model.lower() == "phi3":
+            from ai_engine import chat_completion_phi3_ws
+            return chat_completion_phi3_ws(user_input, history)
         return chat_completion_LlamaModel_ws(user_input, history)
 
 @router.post("/send", response_model=ChatResponse)
 @log_exceptions
 async def send_chat(
     request: ChatRequest,
-    settings: Settings = Depends(get_settings),
-    model: Optional[str] = None
+    settings: Settings = Depends(get_settings)
 ) -> ChatResponse:
-    """Handle chat messages. Optional query param `model` can be 'gemma' to use Gemma for general chat."""
+    """Handle chat messages with model selection support (llama3, gemma, phi3)"""
     logger.info(f"Chat request received:")
     logger.info(f"  - session_id: {request.session_id[:20] if request.session_id else 'None'}...")
     logger.info(f"  - chat_session_id: {request.chat_session_id}")
     logger.info(f"  - user_input: {request.user_input[:50] if request.user_input else 'None'}...")
     logger.info(f"  - active_source_ids: {request.active_source_ids}")
-    logger.info(f"Processing chat request for chat session: {request.chat_session_id}; model={model}")
+    logger.info(f"  - model: {request.model}")
+    logger.info(f"Processing chat request for chat session: {request.chat_session_id}; model={request.model}")
 
     try:
         user_id = validate_session(request.session_id, active_sessions)
@@ -104,7 +129,7 @@ async def send_chat(
             chat_session_data,
             request.active_source_ids,
             settings,
-            model=model
+            model=request.model
         )
 
         # Stream / collect response
@@ -148,6 +173,28 @@ async def send_chat(
             )
 
         logger.info(f"Chat turn saved with ID: {turn_id}")
+        
+        # Generate title automatically if this is the first message (title is still "New Chat")
+        if chat_session_data.get("title") == "New Chat" and len(chat_session_data.get("messages", [])) == 0:
+            logger.info("First message detected, generating chat title...")
+            try:
+                # Create messages for title generation
+                messages_for_title = [
+                    {"role": "user", "content": request.user_input},
+                    {"role": "assistant", "content": full_response}
+                ]
+                
+                # Generate title asynchronously
+                new_title = await generate_chat_title(messages_for_title)
+                
+                if new_title:
+                    from db_manager import rename_chat_session_title
+                    rename_chat_session_title(request.chat_session_id, new_title)
+                    logger.info(f"Chat title updated to: {new_title}")
+            except Exception as e:
+                logger.error(f"Failed to generate chat title: {e}")
+                # Don't fail the request if title generation fails
+        
         return ChatResponse(
             answer=full_response,
             turn_id=turn_id,
@@ -157,3 +204,13 @@ async def send_chat(
     except Exception:
         # decorator already logs exception; re-raise to let FastAPI handle response
         raise
+
+@router.get("/models")
+@log_exceptions
+async def list_available_models():
+    """Get list of available chat models"""
+    models = get_available_models()
+    return {
+        "models": models,
+        "default": "llama3"
+    }

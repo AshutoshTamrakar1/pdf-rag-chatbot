@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, List
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import validator, Field
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ========================================================================
     
     MONGODB_URI: str = Field(
-        default="mongodb://localhost:27017",
+        default="mongodb://localhost:27017/chatbot",
         env="MONGODB_URI",
         description="MongoDB connection string"
     )
@@ -211,11 +211,30 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",")]
         return v
     
-    class Config:
-        """Pydantic config"""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    @validator("CORS_METHODS", pre=True)
+    def validate_cors_methods(cls, v):
+        """Parse CORS methods from string if needed"""
+        if isinstance(v, str):
+            if v == "*":
+                return ["*"]
+            return [method.strip() for method in v.split(",")]
+        return v
+    
+    @validator("CORS_HEADERS", pre=True)
+    def validate_cors_headers(cls, v):
+        """Parse CORS headers from string if needed"""
+        if isinstance(v, str):
+            if v == "*":
+                return ["*"]
+            return [header.strip() for header in v.split(",")]
+        return v
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"  # Ignore extra fields from .env
+    )
 
 
 # ============================================================================

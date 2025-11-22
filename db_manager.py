@@ -4,6 +4,10 @@ from typing import Dict, List, Optional, Any
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from logging_config import get_logger, log_exceptions
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -28,12 +32,14 @@ class MongoDBManager:
             return
         
         try:
-            # Get MongoDB connection string from environment or use default
-            mongo_uri = os.getenv(
-                "MONGODB_URI",
-                "mongodb://localhost:27017"
-            )
-            database_name = os.getenv("MONGODB_DB_NAME", "pdf_rag_chatbot")
+            # Get MongoDB connection string from environment variables
+            mongo_uri = os.getenv("MONGODB_URI")
+            database_name = os.getenv("MONGODB_DB_NAME")
+            
+            if not mongo_uri:
+                raise ValueError("MONGODB_URI environment variable is not set")
+            if not database_name:
+                raise ValueError("MONGODB_DB_NAME environment variable is not set")
             
             logger.info(f"Connecting to MongoDB at {mongo_uri}")
             
@@ -106,9 +112,46 @@ class MongoDBManager:
 # Initialize MongoDB manager
 _db_manager = MongoDBManager()
 
+
 # Export collection names as constants
 COLLECTION_USERS = "users"
 COLLECTION_CHAT_SESSIONS = "chat_sessions"
+COLLECTION_SESSIONS = "sessions"
+COLLECTION_PDF_METADATA = "pdf_metadata"
+
+# SESSION MANAGEMENT FUNCTIONS
+@log_exceptions
+def create_session(session: Dict[str, Any]) -> None:
+    """Create a new session (login/session token)"""
+    session.setdefault("created_at", datetime.utcnow().isoformat())
+    session.setdefault("updated_at", datetime.utcnow().isoformat())
+    _db_manager.db[COLLECTION_SESSIONS].insert_one(session)
+    logger.info(f"Session created: {session.get('session_id')}")
+
+@log_exceptions
+def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Get session by session_id"""
+    return _db_manager.db[COLLECTION_SESSIONS].find_one({"session_id": session_id})
+
+@log_exceptions
+def update_session(session_id: str, update: Dict[str, Any]) -> None:
+    """Update session fields"""
+    update["updated_at"] = datetime.utcnow().isoformat()
+    _db_manager.db[COLLECTION_SESSIONS].update_one({"session_id": session_id}, {"$set": update})
+    logger.info(f"Session updated: {session_id}")
+
+# PDF METADATA FUNCTIONS
+@log_exceptions
+def add_pdf_metadata(metadata: Dict[str, Any]) -> None:
+    """Add PDF metadata to collection"""
+    metadata.setdefault("created_at", datetime.utcnow().isoformat())
+    _db_manager.db[COLLECTION_PDF_METADATA].insert_one(metadata)
+    logger.info(f"PDF metadata added: {metadata.get('pdf_id')}")
+
+@log_exceptions
+def get_pdf_metadata(pdf_id: str) -> Optional[Dict[str, Any]]:
+    """Get PDF metadata by pdf_id"""
+    return _db_manager.db[COLLECTION_PDF_METADATA].find_one({"pdf_id": pdf_id})
 
 
 # ============================================================================

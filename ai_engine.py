@@ -19,7 +19,23 @@ llama3_llm = OllamaLLM(model="llama3", temperature=0.1)
 gemma_llm = OllamaLLM(model="gemma", temperature=0.1)
 phi3_llm = OllamaLLM(model="phi3", temperature=0.1)
 
-# --- Podcast Generation ---
+# Available models mapping
+AVAILABLE_MODELS = {
+    "llama3": llama3_llm,
+    "gemma": gemma_llm,
+    "phi3": phi3_llm
+}
+
+def get_available_models() -> List[str]:
+    """Return list of available model names"""
+    return list(AVAILABLE_MODELS.keys())
+
+def get_model_llm(model_name: str):
+    """Get LLM instance by model name, defaults to llama3"""
+    return AVAILABLE_MODELS.get(model_name, llama3_llm)
+
+# --- Podcast Generation (DISABLED) ---
+'''
 PODCAST_SCRIPT_PROMPT_TEMPLATE = """You are a professional podcast scriptwriter. Create an engaging, informative dialogue between two podcast hosts named Jess and Leo discussing the topics below.
 
 RULES:
@@ -73,6 +89,7 @@ def estimate_podcast_generation_time(mindmap_md: str) -> int:
         f"{line_count} lines: {final_time}s"
     )
     return final_time
+'''
 
 # --- RAG Helper Functions ---
 def _extract_text_from_pdf(pdf_path: str) -> str:
@@ -82,7 +99,7 @@ def _extract_text_from_pdf(pdf_path: str) -> str:
     return text
 
 def _chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators=["\n\n", "\n", ". ","",""])
     return text_splitter.split_text(text)
 
@@ -121,8 +138,22 @@ async def chat_completion_Gemma_ws(text: str, history: List[Dict[str, str]]) -> 
         logger.error(f"Gemma Chat: {e}", exc_info=True)
         yield None, f"Error during Gemma chat completion: {e}"
 
-async def chat_completion_with_pdf_ws(text: str, history: List[Dict[str, str]], pdf_path: str) -> AsyncGenerator[Tuple[Optional[str], Optional[str]], None]:
-    logger.info(f"Initiating Main Chat RAG completion for text: {text[:50]}... using single PDF: {pdf_path}")
+async def chat_completion_phi3_ws(text: str, history: List[Dict[str, str]]) -> AsyncGenerator[Tuple[Optional[str], Optional[str]], None]:
+    logger.info(f"Initiating Phi3 WS completion for text: '{text[:50]}...'")
+    try:
+        messages_to_send = history[-(HISTORY_LENGTH * 2):]
+        if messages_to_send and messages_to_send[0]['role'] == 'assistant':
+            messages_to_send.pop(0)
+        prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send]) + f"\nuser: {text}"
+        response = await asyncio.to_thread(phi3_llm.generate, [prompt])
+        answer = response.generations[0][0].text.strip()
+        yield answer, None
+    except Exception as e:
+        logger.error(f"Phi3 Chat: {e}", exc_info=True)
+        yield None, f"Error during Phi3 chat completion: {e}"
+
+async def chat_completion_with_pdf_ws(text: str, history: List[Dict[str, str]], pdf_path: str, model: str = "llama3") -> AsyncGenerator[Tuple[Optional[str], Optional[str]], None]:
+    logger.info(f"Initiating Main Chat RAG completion for text: {text[:50]} using single PDF: {pdf_path} with model: {model}")
     try:
         if pdf_path not in pdf_rag_cache:
             if not os.path.exists(pdf_path):
@@ -136,7 +167,7 @@ async def chat_completion_with_pdf_ws(text: str, history: List[Dict[str, str]], 
         cached_data = pdf_rag_cache[pdf_path]
         context = _get_top_k_chunks(text, cached_data["chunks"], cached_data["embeddings"])
         rag_history = history[-(HISTORY_LENGTH * 2):]
-        if rag_history and rag_history[0]['role'] == 'assistant':
+        if rag_history and isinstance(rag_history[0], dict) and rag_history[0].get('role') == 'assistant':
             rag_history.pop(0)
         prompt = f"Context:\n{context}\n\nQuestion: {text}\nAnswer:"
         response = await asyncio.to_thread(llama3_llm.generate, [prompt])
@@ -167,7 +198,7 @@ async def chat_completion_with_multiple_pdfs_ws(text: str, history: List[Dict[st
             return
         combined_context = "\n\n--\n\n".join(all_context_chunks)
         rag_history = history[-(HISTORY_LENGTH * 2):]
-        if rag_history and rag_history[0]['role'] == 'assistant':
+        if rag_history and isinstance(rag_history[0], dict) and rag_history[0].get('role') == 'assistant':
             rag_history.pop(0)
         prompt = f"Context from multiple documents:\n{combined_context}\n\nQuestion: {text}\nAnswer:"
         response = await asyncio.to_thread(llama3_llm.generate, [prompt])
@@ -177,70 +208,17 @@ async def chat_completion_with_multiple_pdfs_ws(text: str, history: List[Dict[st
         logger.error(f"Multi-PDF RAG: {e}", exc_info=True)
         yield None, f"Error during Multi-PDF RAG completion: {e}"
 
+""" Disabled mindmap and podcast generation functions as per user request
 # --- Mindmap Generation using phi3 ---
-async def generate_mindmap_from_pdf(pdf_path: str) -> Tuple[Optional[str], Optional[str]]:
-    logger.info(f"MindmapGen: Processing PDF at path: {pdf_path}")
-    if not os.path.exists(pdf_path):
-        err = f"PDF file not found at path: {pdf_path}"
-        logger.error(f"MindmapGen: {err}")
-        return None, err
-    try:
-        pdf_text = _extract_text_from_pdf(pdf_path)
-        prompt = f"Generate a mindmap markdown for the following document:\n{pdf_text}"
-        response = await asyncio.to_thread(phi3_llm.generate, [prompt])
-        mindmap_md = response.generations[0][0].text.strip()
-        logger.info("MindmapGen: Successfully generated mindmap markdown.")
-        return mindmap_md, None
-    except Exception as e:
-        err = f"An unexpected error occurred during mindmap generation: {e}"
-        logger.error(f"MindmapGen: {err}", exc_info=True)
-        return None, "An internal error occurred while generating the mindmap."
-
+# async def generate_mindmap_from_pdf(pdf_path: str) -> Tuple[Optional[str], Optional[str]]:
+#     ...
 # --- Podcast Generation using phi3 + local TTS ---
-import base64
-import tempfile
-from services.local_audio import generate_tts_audio
-
-async def generate_podcast_from_mindmap(mindmap_md: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
-    logger.info("PodcastGen: Generating podcast script from mindmap markdown.")
-    script_prompt = PODCAST_SCRIPT_PROMPT_TEMPLATE.format(mindmap_md=mindmap_md)
-    try:
-        # Use llama3 instead of phi3 for better coherence in long-form content
-        response = await asyncio.to_thread(llama3_llm.generate, [script_prompt])
-        script = response.generations[0][0].text.strip()
-        logger.info("PodcastGen: Script generated successfully.")
-    except Exception as e:
-        err = f"Failed to generate podcast script: {e}"
-        logger.error(f"PodcastGen: {err}", exc_info=True)
-        return None, err
-
-    logger.info("PodcastGen: Generating podcast audio locally.")
-    tmp_path = None
-    try:
-        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        tmp_path = tmp_file.name
-        tmp_file.close()
-
-        # Synthesize audio using blocking TTS on a thread
-        await asyncio.to_thread(generate_tts_audio, script, tmp_path)
-
-        with open(tmp_path, "rb") as f:
-            audio_bytes = f.read()
-        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-        audio_player_html = f'<audio controls src="data:audio/wav;base64,{audio_base64}"></audio>'
-
-        logger.info("PodcastGen: Local audio generated successfully.")
-        return {"script": script, "audio_base64": audio_base64, "audio_player": audio_player_html}, None
-    except Exception as e:
-        err = f"An unexpected error occurred during local audio generation: {e}"
-        logger.error(f"PodcastGen: {err}", exc_info=True)
-        return None, "An internal error occurred while generating the podcast audio."
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+# import base64
+# import tempfile
+# from services.local_audio import generate_tts_audio
+# async def generate_podcast_from_mindmap(mindmap_md: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
+#     ...
+"""
 
 # --- Title Generation using llama3 ---
 async def generate_chat_title(messages_for_title_generation: List[Dict[str, str]]) -> Optional[str]:

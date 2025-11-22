@@ -56,6 +56,39 @@ async def create_chat_session(
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to create chat session")
 
+@router.get("/session/{chat_session_id}")
+@log_exceptions
+async def get_chat_session(
+    chat_session_id: str,
+    session_id: str,
+    settings: Settings = Depends(get_settings)
+):
+    """Get chat session details including updated title"""
+    logger.info(f"Fetching chat session: {chat_session_id}")
+    
+    try:
+        user_id = validate_session(session_id, active_sessions)
+        chat_session_data = get_chat_session_by_id(chat_session_id, user_id)
+        
+        if not chat_session_data:
+            raise ThreadNotFoundError()
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "chat_session_id": chat_session_id,
+                "title": chat_session_data.get("title", "New Chat"),
+                "created_at": chat_session_data.get("created_at"),
+                "message_count": len(chat_session_data.get("messages", [])),
+                "source_count": len(chat_session_data.get("sources", []))
+            }
+        )
+    except ThreadNotFoundError:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    except Exception as e:
+        logger.error(f"Error fetching chat session: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch chat session")
+
 @router.post("/upload")
 @log_exceptions
 async def upload_pdf(

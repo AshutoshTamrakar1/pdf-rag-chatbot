@@ -93,12 +93,10 @@ def process_chat_completion(
             model=model or "llama3"
         )
     else:
-        # general chat: use selected model
+        # general chat: use selected model (llama3 or gemma only)
         if model and model.lower() == "gemma":
             return chat_completion_Gemma_ws(user_input, history)
-        elif model and model.lower() == "phi3":
-            from ai_engine import chat_completion_phi3_ws
-            return chat_completion_phi3_ws(user_input, history)
+        # Default to llama3 for any other model
         return chat_completion_LlamaModel_ws(user_input, history)
 
 @router.post("/send", response_model=ChatResponse)
@@ -107,7 +105,7 @@ async def send_chat(
     request: ChatRequest,
     settings: Settings = Depends(get_settings)
 ) -> ChatResponse:
-    """Handle chat messages with model selection support (llama3, gemma, phi3)"""
+    """Handle chat messages with model selection support (llama3, gemma). phi3 is reserved for podcast generation."""
     logger.info(f"Chat request received:")
     logger.info(f"  - session_id: {request.session_id[:20] if request.session_id else 'None'}...")
     logger.info(f"  - chat_session_id: {request.chat_session_id}")

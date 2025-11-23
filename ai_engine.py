@@ -26,13 +26,23 @@ AVAILABLE_MODELS = {
     "phi3": phi3_llm
 }
 
+# Chat models only (phi3 reserved for podcast generation)
+CHAT_MODELS = {
+    "llama3": llama3_llm,
+    "gemma": gemma_llm
+}
+
 def get_available_models() -> List[str]:
-    """Return list of available model names"""
-    return list(AVAILABLE_MODELS.keys())
+    """Return list of available chat model names (excludes phi3 which is for podcasts)"""
+    return list(CHAT_MODELS.keys())
 
 def get_model_llm(model_name: str):
     """Get LLM instance by model name, defaults to llama3"""
-    return AVAILABLE_MODELS.get(model_name, llama3_llm)
+    return CHAT_MODELS.get(model_name, llama3_llm)
+
+def get_podcast_model():
+    """Get the dedicated podcast generation model (phi3)"""
+    return phi3_llm
 
 # --- Podcast Generation (DISABLED) ---
 '''
@@ -56,10 +66,40 @@ IMPORTANT: Create a coherent discussion that covers the main points from the top
 
 Now write the podcast script:
 """
+'''
+
+# --- Mindmap Generation Prompt ---
+MINDMAP_PROMPT_TEMPLATE = """You are an expert at creating hierarchical mindmaps. Analyze the following document text and create a comprehensive mindmap in Mermaid diagram syntax.
+
+REQUIREMENTS:
+1. Use ONLY Mermaid mindmap syntax - start with "mindmap" on first line
+2. Use proper indentation with 2 spaces per level
+3. Root node format: root((Title))
+4. Create 3-5 main branches (key topics)
+5. Each main branch should have 2-3 sub-branches
+6. Keep labels concise (3-7 words max)
+7. Output ONLY valid Mermaid code - no explanations, no markdown formatting
+
+MERMAID SYNTAX (FOLLOW THIS EXACTLY):
+mindmap
+  root((Central Topic))
+    Main Topic 1
+      Subtopic 1.1
+      Subtopic 1.2
+    Main Topic 2
+      Subtopic 2.1
+      Subtopic 2.2
+
+DOCUMENT TEXT:
+{pdf_text}
+
+Generate ONLY the Mermaid mindmap code:
+"""
 
 # --- Estimation functions ---
 def estimate_mindmap_generation_time(pdf_path: str) -> int:
     try:
+        # Import helper at runtime to avoid circular dependency
         pdf_text = _extract_text_from_pdf(pdf_path)
         char_count = len(pdf_text)
         base_time_seconds = 15
@@ -89,7 +129,6 @@ def estimate_podcast_generation_time(mindmap_md: str) -> int:
         f"{line_count} lines: {final_time}s"
     )
     return final_time
-'''
 
 # --- RAG Helper Functions ---
 def _extract_text_from_pdf(pdf_path: str) -> str:
@@ -116,7 +155,12 @@ async def chat_completion_LlamaModel_ws(text: str, history: List[Dict[str, str]]
         messages_to_send = history[-(HISTORY_LENGTH * 2):]
         if messages_to_send and messages_to_send[0]['role'] == 'assistant':
             messages_to_send.pop(0)
-        prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send]) + f"\nuser: {text}"
+        
+        # Build prompt with system instructions and conversation history
+        prompt = f"{SYSTEM_PROMPT}\n\n"
+        prompt += "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send])
+        prompt += f"\nuser: {text}\nassistant:"
+        
         response = await asyncio.to_thread(llama3_llm.generate, [prompt])
         answer = response.generations[0][0].text.strip()
         yield answer, None
@@ -130,7 +174,12 @@ async def chat_completion_Gemma_ws(text: str, history: List[Dict[str, str]]) -> 
         messages_to_send = history[-(HISTORY_LENGTH * 2):]
         if messages_to_send and messages_to_send[0]['role'] == 'assistant':
             messages_to_send.pop(0)
-        prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send]) + f"\nuser: {text}"
+        
+        # Build prompt with system instructions and conversation history
+        prompt = f"{SYSTEM_PROMPT}\n\n"
+        prompt += "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send])
+        prompt += f"\nuser: {text}\nassistant:"
+        
         response = await asyncio.to_thread(gemma_llm.generate, [prompt])
         answer = response.generations[0][0].text.strip()
         yield answer, None
@@ -138,6 +187,7 @@ async def chat_completion_Gemma_ws(text: str, history: List[Dict[str, str]]) -> 
         logger.error(f"Gemma Chat: {e}", exc_info=True)
         yield None, f"Error during Gemma chat completion: {e}"
 
+# --- Phi3 Completion (RESERVED FOR PODCAST GENERATION ONLY) ---
 async def chat_completion_phi3_ws(text: str, history: List[Dict[str, str]]) -> AsyncGenerator[Tuple[Optional[str], Optional[str]], None]:
     logger.info(f"Initiating Phi3 WS completion for text: '{text[:50]}...'")
     try:
@@ -169,7 +219,17 @@ async def chat_completion_with_pdf_ws(text: str, history: List[Dict[str, str]], 
         rag_history = history[-(HISTORY_LENGTH * 2):]
         if rag_history and isinstance(rag_history[0], dict) and rag_history[0].get('role') == 'assistant':
             rag_history.pop(0)
-        prompt = f"Context:\n{context}\n\nQuestion: {text}\nAnswer:"
+        
+        # Use proper RAG prompt with system instructions
+        prompt = f"""{RAG_SYSTEM_PROMPT}
+
+Context from the document:
+{context}
+
+Question: {text}
+
+Answer:"""
+        
         response = await asyncio.to_thread(llama3_llm.generate, [prompt])
         answer = response.generations[0][0].text.strip()
         yield answer, None
@@ -200,7 +260,17 @@ async def chat_completion_with_multiple_pdfs_ws(text: str, history: List[Dict[st
         rag_history = history[-(HISTORY_LENGTH * 2):]
         if rag_history and isinstance(rag_history[0], dict) and rag_history[0].get('role') == 'assistant':
             rag_history.pop(0)
-        prompt = f"Context from multiple documents:\n{combined_context}\n\nQuestion: {text}\nAnswer:"
+        
+        # Use proper RAG prompt with system instructions
+        prompt = f"""{RAG_SYSTEM_PROMPT}
+
+Context from multiple documents:
+{combined_context}
+
+Question: {text}
+
+Answer:"""
+        
         response = await asyncio.to_thread(llama3_llm.generate, [prompt])
         answer = response.generations[0][0].text.strip()
         yield answer, None
@@ -208,7 +278,57 @@ async def chat_completion_with_multiple_pdfs_ws(text: str, history: List[Dict[st
         logger.error(f"Multi-PDF RAG: {e}", exc_info=True)
         yield None, f"Error during Multi-PDF RAG completion: {e}"
 
-""" Disabled mindmap and podcast generation functions as per user request
+# --- Mindmap Generation using phi3 ---
+async def generate_mindmap_from_pdf(pdf_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Generate a Mermaid mindmap from PDF using phi3 model.
+    Returns: (mindmap_markdown, error_message)
+    """
+    logger.info(f"Generating mindmap from PDF: {pdf_path}")
+    try:
+        # Extract text from PDF
+        pdf_text = _extract_text_from_pdf(pdf_path)
+        
+        if not pdf_text or len(pdf_text.strip()) < 50:
+            error_msg = "PDF text is too short or empty to generate mindmap"
+            logger.error(error_msg)
+            return None, error_msg
+        
+        # Truncate text if too long (keep first 4000 chars for better performance)
+        if len(pdf_text) > 4000:
+            pdf_text = pdf_text[:4000] + "..."
+            logger.info(f"Truncated PDF text to 4000 characters for mindmap generation")
+        
+        # Generate mindmap using phi3
+        prompt = MINDMAP_PROMPT_TEMPLATE.format(pdf_text=pdf_text)
+        logger.info("Sending prompt to phi3 for mindmap generation...")
+        
+        response = await asyncio.to_thread(phi3_llm.generate, [prompt])
+        mindmap_markdown = response.generations[0][0].text.strip()
+        
+        # Validate that we got Mermaid syntax
+        if not mindmap_markdown.startswith("mindmap"):
+            logger.warning("Generated mindmap doesn't start with 'mindmap', attempting to fix...")
+            if "mindmap" in mindmap_markdown.lower():
+                # Try to extract the mindmap part
+                lines = mindmap_markdown.split('\n')
+                mindmap_start = next((i for i, line in enumerate(lines) if line.strip().lower() == "mindmap"), None)
+                if mindmap_start is not None:
+                    mindmap_markdown = '\n'.join(lines[mindmap_start:])
+                else:
+                    mindmap_markdown = "mindmap\n" + mindmap_markdown
+            else:
+                mindmap_markdown = "mindmap\n" + mindmap_markdown
+        
+        logger.info(f"Mindmap generated successfully ({len(mindmap_markdown)} chars)")
+        return mindmap_markdown, None
+        
+    except Exception as e:
+        error_msg = f"Error generating mindmap: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
+
+""" Disabled podcast generation functions as per user request
 # --- Mindmap Generation using phi3 ---
 # async def generate_mindmap_from_pdf(pdf_path: str) -> Tuple[Optional[str], Optional[str]]:
 #     ...
@@ -241,10 +361,18 @@ async def generate_chat_title(messages_for_title_generation: List[Dict[str, str]
         return None
 
 # --- Constants ---
-SYSTEM_PROMPT  = """You are a helpful Al assistant. Provide concise and accurate answers based on the conversation history."""
+SYSTEM_PROMPT  = """You are a helpful AI assistant. Provide clear, accurate, and well-structured answers based on the conversation history. When asked to summarize, organize information logically with bullet points or sections."""
 
-RAG_SYSTEM_PROMPT = """ You are an expert assistant. Use ONLY the provided context to answer the user's question accurately. 
-If the answer is not in the context, say "I cannot answer this based on the provided document." Do not use any prior knowledge."""
+RAG_SYSTEM_PROMPT = """You are an expert document assistant. Analyze the provided context carefully and answer the user's question accurately.
+
+RULES:
+1. Use ONLY information from the provided context
+2. When summarizing, organize information with clear sections and bullet points
+3. Be comprehensive but concise - highlight key points
+4. If asked to summarize, structure your response with headings
+5. If the answer is not in the context, say "I cannot answer this based on the provided document."
+6. Do not copy-paste text directly - synthesize and organize the information
+7. Provide well-formatted, easy-to-read responses"""
 
 TITLE_GENERATION_PROMPT = """Based on the following conversation, generate a short, concise title (4-5 words max).
 Do not use any quotation marks or labels in your response. Just provide the title text.

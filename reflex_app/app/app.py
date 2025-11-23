@@ -129,6 +129,14 @@ class MainState(rx.State):
     uploaded_pdfs: list[dict] = []
     active_source_ids: list[str] = []
     
+    # Mindmap
+    show_mindmap: bool = False
+    mindmap_markdown: str = ""
+    mindmap_loading: bool = False
+    selected_pdf_for_mindmap: str = ""
+    mindmap_items: list[dict[str, str]] = []
+    expanded_nodes: list[str] = []
+    
     # UI state
     error: str = ""
     is_loading: bool = False
@@ -280,6 +288,141 @@ class MainState(rx.State):
         finally:
             self.is_loading = False
     
+    async def generate_mindmap(self, source_id: str):
+        """Generate mindmap from PDF"""
+        print(f"[MINDMAP] Generating mindmap for source: {source_id}")
+        self.mindmap_loading = True
+        self.error = ""
+        
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                payload = {
+                    "session_id": self.session_id,
+                    "chat_session_id": self.current_chat_id,
+                    "source_id": source_id
+                }
+                
+                print(f"[MINDMAP] Sending request to {BACKEND_URL}/mindmap/generate")
+                response = await client.post(
+                    f"{BACKEND_URL}/mindmap/generate",
+                    json=payload
+                )
+                
+                print(f"[MINDMAP] Response status: {response.status_code}")
+                if response.status_code == 200:
+                    data = response.json()
+                    self.mindmap_markdown = data["markdown"]
+                    self.parse_mindmap_text(self.mindmap_markdown)
+                    self.show_mindmap = True
+                    self.selected_pdf_for_mindmap = source_id
+                    print(f"[MINDMAP SUCCESS] Generated {len(self.mindmap_markdown)} chars")
+                else:
+                    self.error = f"Mindmap generation failed: {response.text}"
+                    print(f"[MINDMAP ERROR] {self.error}")
+        except Exception as e:
+            self.error = f"Mindmap error: {str(e)}"
+            print(f"[MINDMAP EXCEPTION] {e}")
+        finally:
+            self.mindmap_loading = False
+    
+    async def generate_mindmap_from_active_pdfs(self):
+        """Generate mindmap from the first uploaded PDF in current chat"""
+        print(f"[MINDMAP] Generating mindmap from active PDFs")
+        
+        if not self.uploaded_pdfs:
+            self.error = "Please upload a PDF first"
+            return
+        
+        # Use the first uploaded PDF
+        first_pdf = self.uploaded_pdfs[0]
+        source_id = first_pdf.get("source_id")
+        
+        if not source_id:
+            self.error = "No valid PDF source found"
+            return
+        
+        # Call the existing generate_mindmap function
+        await self.generate_mindmap(source_id)
+    
+    def parse_mindmap_text(self, text: str):
+        """Parse mindmap text into hierarchical list with parent-child relationships"""
+        lines = text.strip().split('\n')
+        items = []
+        current_id = 0
+        stack = []  # Stack to track parent IDs at each level
+        
+        for line in lines:
+            if not line.strip() or line.strip().startswith('mindmap'):
+                continue
+            
+            # Detect indent level
+            stripped = line.lstrip()
+            indent = (len(line) - len(stripped)) // 2  # Normalize to 0, 1, 2, 3...
+            text_content = stripped.strip()
+            
+            # Skip if empty
+            if not text_content:
+                continue
+            
+            # Extract root title
+            if 'root((' in text_content:
+                title = text_content.split('((')[1].split('))')[0] if '((' in text_content else text_content
+                items.append({
+                    "id": "root",
+                    "title": title,
+                    "level": "0",
+                    "parent_id": "",
+                    "has_children": "false"
+                })
+                stack = [(0, "root")]  # (indent_level, node_id)
+                continue
+            
+            # Create item
+            current_id += 1
+            item_id = f"node_{current_id}"
+            
+            # Find parent based on indentation
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            
+            parent_id = stack[-1][1] if stack else ""
+            
+            items.append({
+                "id": item_id,
+                "title": text_content.replace(':', ' -'),
+                "level": str(indent),
+                "parent_id": parent_id,
+                "has_children": "false"  # Will be updated
+            })
+            
+            # Mark parent as having children
+            if parent_id:
+                for item in items:
+                    if item["id"] == parent_id:
+                        item["has_children"] = "true"
+                        break
+            
+            stack.append((indent, item_id))
+        
+        self.mindmap_items = items
+        self.expanded_nodes = ["root"]  # Start with root expanded
+    
+    def toggle_node(self, node_id: str):
+        """Toggle expand/collapse state of a node"""
+        if node_id in self.expanded_nodes:
+            self.expanded_nodes.remove(node_id)
+        else:
+            self.expanded_nodes.append(node_id)
+    
+    def toggle_mindmap(self):
+        """Toggle mindmap modal"""
+        self.show_mindmap = not self.show_mindmap
+        if not self.show_mindmap:
+            self.mindmap_markdown = ""
+            self.selected_pdf_for_mindmap = ""
+            self.mindmap_items = []
+            self.expanded_nodes = []
+    
     async def handle_upload(self, files: list[rx.UploadFile]):
         """Handle file upload from rx.upload component"""
         print(f"[HANDLE_UPLOAD] Files received: {files}")
@@ -366,9 +509,23 @@ class MainState(rx.State):
         self.selected_model = model
         print(f"[MODEL] Selected: {model}")
     
-    def logout(self):
-        """Logout user and clear session"""
+    async def logout(self):
+        """Logout user and end session on backend"""
         print(f"[LOGOUT] Logging out user")
+        
+        # Call backend to invalidate session
+        if self.session_id:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        f"{BACKEND_URL}/auth/logout",
+                        params={"session_id": self.session_id}
+                    )
+                    print(f"[LOGOUT] Backend response: {response.status_code}")
+            except Exception as e:
+                print(f"[LOGOUT ERROR] {e}")
+        
+        # Clear frontend state
         self.session_id = ""
         self.user_id = ""
         self.token = ""
@@ -399,6 +556,172 @@ class MainState(rx.State):
                         print(f"[TITLE] Updated to: {new_title}")
         except Exception as e:
             print(f"[TITLE ERROR] {e}")
+
+
+def render_mindmap_item(item: dict) -> rx.Component:
+    """Render a single mindmap item as a tree node with expand/collapse"""
+    # Determine indentation based on level
+    indent_px = rx.cond(
+        item["level"] == "0", "0px",
+        rx.cond(item["level"] == "1", "20px",
+        rx.cond(item["level"] == "2", "40px",
+        rx.cond(item["level"] == "3", "60px", "80px")))
+    )
+    
+    # Color coding based on level
+    return rx.cond(
+        item["level"] == "0",
+        # Level 0 (root) - Blue
+        rx.vstack(
+            rx.hstack(
+                rx.cond(
+                    item["has_children"] == "true",
+                    rx.button(
+                        rx.cond(
+                            MainState.expanded_nodes.contains(item["id"]),
+                            "▼",
+                            "▶"
+                        ),
+                        on_click=lambda id=item["id"]: MainState.toggle_node(id),
+                        size="1",
+                        variant="ghost",
+                        color="blue.700",
+                    ),
+                    rx.box(width="20px"),
+                ),
+                rx.box(
+                    rx.text(item["title"], font_weight="700", font_size="1.3em", color="black"),
+                    padding="0.6em 1.2em",
+                    bg="blue.200",
+                    border_radius="0.5em",
+                    border="2px solid var(--blue-700)",
+                    flex="1",
+                ),
+                width="100%",
+                align="center",
+                margin_left=indent_px,
+            ),
+            width="100%",
+            spacing="1",
+        ),
+        rx.cond(
+            item["level"] == "1",
+            # Level 1 - Green
+            rx.cond(
+                (MainState.expanded_nodes.contains(item["parent_id"])) | (item["parent_id"] == ""),
+                rx.vstack(
+                    rx.hstack(
+                        rx.cond(
+                            item["has_children"] == "true",
+                            rx.button(
+                                rx.cond(
+                                    MainState.expanded_nodes.contains(item["id"]),
+                                    "▼",
+                                    "▶"
+                                ),
+                                on_click=lambda id=item["id"]: MainState.toggle_node(id),
+                                size="1",
+                                variant="ghost",
+                                color="green.700",
+                            ),
+                            rx.box(width="20px"),
+                        ),
+                        rx.box(
+                            rx.text(item["title"], font_weight="600", font_size="1.1em", color="black"),
+                            padding="0.5em 1em",
+                            bg="green.100",
+                            border_radius="0.5em",
+                            border_left="4px solid var(--green-600)",
+                            flex="1",
+                        ),
+                        width="100%",
+                        align="center",
+                        margin_left=indent_px,
+                    ),
+                    width="100%",
+                    spacing="1",
+                ),
+                rx.box(),  # Hidden if parent not expanded
+            ),
+            rx.cond(
+                item["level"] == "2",
+                # Level 2 - Purple
+                rx.cond(
+                    MainState.expanded_nodes.contains(item["parent_id"]),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.cond(
+                                item["has_children"] == "true",
+                                rx.button(
+                                    rx.cond(
+                                        MainState.expanded_nodes.contains(item["id"]),
+                                        "▼",
+                                        "▶"
+                                    ),
+                                    on_click=lambda id=item["id"]: MainState.toggle_node(id),
+                                    size="1",
+                                    variant="ghost",
+                                    color="purple.700",
+                                ),
+                                rx.box(width="20px"),
+                            ),
+                            rx.box(
+                                rx.text(item["title"], font_weight="500", font_size="1.0em", color="black"),
+                                padding="0.4em 0.9em",
+                                bg="purple.50",
+                                border_radius="0.5em",
+                                border_left="4px solid var(--purple-500)",
+                                flex="1",
+                            ),
+                            width="100%",
+                            align="center",
+                            margin_left=indent_px,
+                        ),
+                        width="100%",
+                        spacing="1",
+                    ),
+                    rx.box(),  # Hidden if parent not expanded
+                ),
+                # Level 3+ - Orange
+                rx.cond(
+                    MainState.expanded_nodes.contains(item["parent_id"]),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.cond(
+                                item["has_children"] == "true",
+                                rx.button(
+                                    rx.cond(
+                                        MainState.expanded_nodes.contains(item["id"]),
+                                        "▼",
+                                        "▶"
+                                    ),
+                                    on_click=lambda id=item["id"]: MainState.toggle_node(id),
+                                    size="1",
+                                    variant="ghost",
+                                    color="orange.700",
+                                ),
+                                rx.box(width="20px"),
+                            ),
+                            rx.box(
+                                rx.text(item["title"], font_weight="500", font_size="0.95em", color="black"),
+                                padding="0.4em 0.8em",
+                                bg="orange.50",
+                                border_radius="0.4em",
+                                border_left="3px solid var(--orange-500)",
+                                flex="1",
+                            ),
+                            width="100%",
+                            align="center",
+                            margin_left=indent_px,
+                        ),
+                        width="100%",
+                        spacing="1",
+                    ),
+                    rx.box(),  # Hidden if parent not expanded
+                ),
+            ),
+        ),
+    )
 
 
 def login_page():
@@ -491,7 +814,17 @@ def chat_page():
                 rx.foreach(
                     MainState.uploaded_pdfs,
                     lambda pdf: rx.box(
-                        rx.text(pdf["filename"], size="1"),
+                        rx.hstack(
+                            rx.text(pdf["filename"], size="1", flex="1"),
+                            rx.button(
+                                "🗺️",
+                                size="1",
+                                on_click=lambda: MainState.generate_mindmap(pdf["source_id"]),
+                                title="Generate Mindmap",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
                         padding="0.25em",
                         bg="blue.50",
                         border_radius="0.25em",
@@ -570,7 +903,7 @@ def chat_page():
                     MainState.error != "",
                     rx.text(MainState.error, color="red", padding="0.5em"),
                 ),
-                # Model selector
+                # Model selector and mindmap button
                 rx.hstack(
                     rx.text("Model:", font_weight="500"),
                     rx.select(
@@ -578,10 +911,20 @@ def chat_page():
                         value=MainState.selected_model,
                         on_change=MainState.set_model,
                     ),
+                    rx.spacer(),
+                    rx.button(
+                        "Generate Mindmap",
+                        on_click=MainState.generate_mindmap_from_active_pdfs,
+                        is_loading=MainState.mindmap_loading,
+                        is_disabled=MainState.uploaded_pdfs.length() == 0,
+                        color_scheme="blue",
+                        size="2",
+                    ),
                     padding="0.5em 1em",
                     spacing="2",
                     border_top="1px solid #e2e8f0",
                     width="100%",
+                    align="center",
                 ),
                 # Input area
                 rx.hstack(
@@ -620,7 +963,7 @@ def chat_page():
                         ),
                         rx.button(
                             "Upload",
-                            on_click=lambda: MainState.handle_upload(rx.upload_files(upload_id="pdf_upload")),
+                            on_click=MainState.handle_upload(rx.upload_files(upload_id="pdf_upload")),
                         ),
                         rx.button(
                             "Close",
@@ -641,6 +984,63 @@ def chat_page():
                 width="100vw",
                 height="100vh",
                 z_index="1000",
+            )
+        ),
+        # Mindmap modal
+        rx.cond(
+            MainState.show_mindmap,
+            rx.box(
+                rx.box(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.heading("Mindmap", size="6"),
+                            rx.spacer(),
+                            rx.button(
+                                "✕",
+                                on_click=MainState.toggle_mindmap,
+                                size="2",
+                            ),
+                            width="100%",
+                        ),
+                        rx.cond(
+                            MainState.mindmap_loading,
+                            rx.spinner(size="3"),
+                            rx.vstack(
+                                rx.foreach(
+                                    MainState.mindmap_items,
+                                    render_mindmap_item
+                                ),
+                                width="100%",
+                                max_height="70vh",
+                                overflow_y="auto",
+                                padding="1em",
+                                bg="white",
+                                border_radius="0.5em",
+                                spacing="2",
+                            ),
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    bg="white",
+                    padding="2em",
+                    border_radius="0.5em",
+                    box_shadow="lg",
+                    width="90vw",
+                    max_width="1200px",
+                    max_height="90vh",
+                ),
+                position="fixed",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+                bg="rgba(0,0,0,0.5)",
+                width="100vw",
+                height="100vh",
+                z_index="1000",
+                display="flex",
+                align_items="center",
+                justify_content="center",
             )
         ),
         on_mount=MainState.on_load,

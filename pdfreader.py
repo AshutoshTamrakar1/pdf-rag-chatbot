@@ -5,7 +5,7 @@ from pathlib import Path
 # Import routers
 from services.pdf_service import router as pdf_router
 from services.chat_service import router as chat_router
-#from services.mindmap_service import router as mindmap_router
+from services.mindmap_service import router as mindmap_router
 #from services.websocket_handler import router as ws_router
 
 # Import auth and config
@@ -37,8 +37,8 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(pdf_router, prefix="/pdf", tags=["PDF Operations"])
 app.include_router(chat_router, prefix="/chat", tags=["Chat Operations"])
-""" Disabled non-core features: mindmap, podcast, websocket
-app.include_router(mindmap_router, prefix="/mindmap", tags=["Mindmap & Podcast Operations"])
+app.include_router(mindmap_router, prefix="/mindmap", tags=["Mindmap Operations"])
+""" Disabled non-core features: podcast, websocket
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 """
 

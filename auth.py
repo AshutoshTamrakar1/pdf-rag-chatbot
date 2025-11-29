@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 import jwt as pyjwt
 import bcrypt
 from logging_config import get_logger, log_exceptions
@@ -34,6 +34,11 @@ active_sessions: Dict[str, Dict[str, Any]] = {}
 
 # ============================================================================
 # PYDANTIC MODELS
+#
+# NOTE: This project uses Pydantic v2 style validators. The old `validator`
+# decorator from Pydantic v1 is deprecated — we use `field_validator` for
+# single-field validation and `model_validator` for cross-field checks (e.g.
+# password/confirm_password equality).
 # ============================================================================
 
 class UserRegisterRequest(BaseModel):
@@ -43,19 +48,22 @@ class UserRegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     confirm_password: str = Field(..., min_length=8, max_length=128)
 
-    @validator("username")
+    # Pydantic v2: use field_validator for single-field validation
+    @field_validator("username")
     def validate_username(cls, v):
         """Validate username format"""
+        # allow alphanumeric characters or underscore or hyphen
         if not v.isalnum() and "_" not in v and "-" not in v:
             raise ValueError("Username can only contain alphanumeric characters, underscores, and hyphens")
         return v
 
-    @validator("confirm_password")
-    def validate_passwords_match(cls, v, values):
-        """Ensure passwords match"""
-        if "password" in values and v != values["password"]:
+    # Confirm password must match password — this is a cross-field validation
+    @model_validator(mode="after")
+    def validate_passwords_match(cls, model):
+        """Ensure passwords match (model-level validator)"""
+        if getattr(model, "password", None) is not None and getattr(model, "confirm_password", None) != model.password:
             raise ValueError("Passwords do not match")
-        return v
+        return model
 
 
 class UserLoginRequest(BaseModel):

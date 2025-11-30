@@ -3,8 +3,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from fastapi import APIRouter, HTTPException, status, Depends
+# run_in_threadpool is not used here after DB helpers migrated to async
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-import jwt as pyjwt
 import bcrypt
 from logging_config import get_logger, log_exceptions
 from db_manager import (
@@ -22,11 +22,8 @@ logger = get_logger(__name__)
 # CONFIGURATION
 # ============================================================================
 
-# JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))  # 8 hours
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))  # 7 days
+# NOTE: We're using stateful sessions only (no JWT). Session persistence is
+# handled by the `sessions` collection via `db_manager`.
 
 # Active sessions in memory (for quick lookup)
 # In production, use Redis or persistent store
@@ -73,15 +70,11 @@ class UserLoginRequest(BaseModel):
 
 
 class UserLoginResponse(BaseModel):
-    """User login response model"""
+    """User login response model (session-only auth)"""
     status: str
     message: str
     user_id: str
     session_id: str
-    access_token: str
-    refresh_token: Optional[str] = None
-    token_type: str = "bearer"
-    expires_in: int  # seconds
 
 
 class UserRegisterResponse(BaseModel):
@@ -93,17 +86,8 @@ class UserRegisterResponse(BaseModel):
     username: str
 
 
-class TokenRefreshRequest(BaseModel):
-    """Token refresh request model"""
-    refresh_token: str
-
-
-class TokenRefreshResponse(BaseModel):
-    """Token refresh response model"""
-    status: str
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
+# Token refresh and verification endpoints have been removed because we
+# now rely on stateful sessions stored in the `sessions` collection.
 
 
 class UserProfileResponse(BaseModel):
@@ -139,69 +123,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # JWT TOKEN MANAGEMENT
 # ============================================================================
 
-def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> tuple[str, int]:
-    """Create JWT access token"""
-    if expires_delta is None:
-        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    expire = datetime.utcnow() + expires_delta
-    payload = {
-        "sub": user_id,
-        "type": "access",
-        "exp": expire,
-        "iat": datetime.utcnow()
-    }
-    
-    token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    expires_in = int(expires_delta.total_seconds())
-    
-    logger.info(f"Access token created for user: {user_id}")
-    return token, expires_in
-
-
-def create_refresh_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT refresh token"""
-    if expires_delta is None:
-        expires_delta = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    
-    expire = datetime.utcnow() + expires_delta
-    payload = {
-        "sub": user_id,
-        "type": "refresh",
-        "exp": expire,
-        "iat": datetime.utcnow()
-    }
-    
-    token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    logger.info(f"Refresh token created for user: {user_id}")
-    return token
-
-
-def verify_token(token: str, token_type: str = "access") -> Optional[str]:
-    """Verify JWT token and return user_id"""
-    try:
-        payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
-        token_type_in_payload = payload.get("type")
-        
-        if user_id is None or token_type_in_payload != token_type:
-            logger.warning(f"Invalid token type or missing user_id")
-            return None
-        
-        return user_id
-    except pyjwt.ExpiredSignatureError:
-        logger.warning("Token has expired")
-        return None
-    except pyjwt.InvalidTokenError as e:
-        logger.warning(f"Invalid token: {e}")
-        return None
+# JWT token functions removed — session-only authentication is used
 
 
 # ============================================================================
 # SESSION MANAGEMENT
 # ============================================================================
 
-def create_session(user_id: str) -> str:
+async def create_session(user_id: str) -> str:
     """Create a new session for user (stores both in-memory and database)"""
     session_id = str(uuid.uuid4())
     
@@ -216,9 +145,10 @@ def create_session(user_id: str) -> str:
     # Store in memory for fast access
     active_sessions[session_id] = session_data
     
-    # Store in database for persistence
+    # Store in database for persistence (non-blocking)
     try:
-        create_session_in_db(session_data)
+        # db_manager.create_session is async (Motor) so call directly
+        await create_session_in_db(session_data)
     except Exception as e:
         logger.error(f"Failed to store session in database: {e}")
     
@@ -301,9 +231,10 @@ async def register(request: UserRegisterRequest):
     logger.info(f"Registration attempt for email: {request.email}")
     
     try:
-        # Check if user already exists
+        # Check if user already exists (run DB ops in threadpool)
         from db_manager import _db_manager
-        existing_user = _db_manager.db[COLLECTION_USERS].find_one({
+        # Use async Motor client directly
+        existing_user = await _db_manager.db[COLLECTION_USERS].find_one({
             "$or": [
                 {"email": request.email},
                 {"username": request.username}
@@ -337,7 +268,8 @@ async def register(request: UserRegisterRequest):
             "active": True
         }
         
-        _db_manager.db[COLLECTION_USERS].insert_one(user_doc)
+        # Use async Motor insert
+        await _db_manager.db[COLLECTION_USERS].insert_one(user_doc)
         logger.info(f"User registered successfully: {user_id}")
         
         return UserRegisterResponse(
@@ -365,9 +297,9 @@ async def login(request: UserLoginRequest):
     logger.info(f"Login attempt for email: {request.email}")
     
     try:
-        # Find user by email
+        # Find user by email (run DB ops in threadpool)
         from db_manager import _db_manager
-        user = _db_manager.db[COLLECTION_USERS].find_one({"email": request.email})
+        user = await _db_manager.db[COLLECTION_USERS].find_one({"email": request.email})
         
         if not user:
             logger.warning(f"Login failed: user not found for email {request.email}")
@@ -391,14 +323,12 @@ async def login(request: UserLoginRequest):
                 detail="Invalid email or password"
             )
         
-        # Create tokens and session
+        # Create session (session-only authentication)
         user_id = user.get("user_id")
-        access_token, expires_in = create_access_token(user_id)
-        refresh_token = create_refresh_token(user_id)
-        session_id = create_session(user_id)
+        session_id = await create_session(user_id)
         
-        # Update last login
-        update_user_last_login(user_id)
+        # Update last login (async DB update)
+        await update_user_last_login(user_id)
         
         logger.info(f"User logged in successfully: {user_id}")
         
@@ -406,10 +336,7 @@ async def login(request: UserLoginRequest):
             status="success",
             message="Login successful",
             user_id=user_id,
-            session_id=session_id,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            expires_in=expires_in
+            session_id=session_id
         )
     
     except HTTPException:
@@ -422,42 +349,7 @@ async def login(request: UserLoginRequest):
         )
 
 
-@router.post("/refresh", response_model=TokenRefreshResponse)
-@log_exceptions
-async def refresh_token(request: TokenRefreshRequest):
-    """Refresh access token using refresh token"""
-    logger.info("Token refresh attempt")
-    
-    try:
-        # Verify refresh token
-        user_id = verify_token(request.refresh_token, token_type="refresh")
-        
-        if not user_id:
-            logger.warning("Token refresh failed: invalid refresh token")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired refresh token"
-            )
-        
-        # Create new access token
-        access_token, expires_in = create_access_token(user_id)
-        
-        logger.info(f"Token refreshed for user: {user_id}")
-        
-        return TokenRefreshResponse(
-            status="success",
-            access_token=access_token,
-            expires_in=expires_in
-        )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Token refresh error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Token refresh failed"
-        )
+# /refresh endpoint removed — using session-only authentication
 
 
 @router.post("/logout")
@@ -544,7 +436,7 @@ async def get_profile(session_id: str):
             )
         
         # Get user from database
-        user = get_user_by_id(user_id)
+        user = await get_user_by_id(user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -570,34 +462,7 @@ async def get_profile(session_id: str):
         )
 
 
-@router.post("/verify-token")
-@log_exceptions
-async def verify_access_token(token: str):
-    """Verify if access token is valid"""
-    logger.debug("Token verification attempt")
-    
-    try:
-        user_id = verify_token(token, token_type="access")
-        
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token"
-            )
-        
-        return {
-            "status": "valid",
-            "user_id": user_id
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Token verification error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Token verification failed"
-        )
+# /verify-token endpoint removed — session-based auth does not use tokens
 
 
 @router.post("/change-password")
@@ -635,7 +500,7 @@ async def change_password(
             )
         
         # Get user and verify old password
-        user = get_user_by_id(user_id)
+        user = await get_user_by_id(user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -652,8 +517,9 @@ async def change_password(
         # Update password
         from db_manager import _db_manager
         hashed_new_password = hash_password(new_password)
-        
-        _db_manager.db[COLLECTION_USERS].update_one(
+
+        # Run update in threadpool
+        await _db_manager.db[COLLECTION_USERS].update_one(
             {"user_id": user_id},
             {
                 "$set": {

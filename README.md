@@ -26,7 +26,7 @@ A sophisticated **Retrieval-Augmented Generation (RAG)** chatbot that processes 
 - **🤖 RAG-Powered Chat**: Ask questions about uploaded PDF documents with context-aware responses
 - **📊 Mindmap Generation**: Automatically generate mindmaps from PDF content
 - **🎙️ Podcast Creation**: Convert document summaries into podcast scripts with audio generation
-- **🔐 User Authentication**: Secure JWT-based authentication with session management
+- **🔐 User Authentication**: Session-based authentication (no JWT) with server-side sessions
 - **💾 Chat History**: Persistent storage of conversations and sessions
 - **📁 Multi-PDF Support**: Chat with context from multiple documents simultaneously
 
@@ -106,7 +106,7 @@ User Asks Question
 
 | Component | Purpose | Technology |
 |-----------|---------|------------|
-| **Authentication Layer** | User registration, login, JWT tokens, session management | FastAPI, JWT, bcrypt |
+| **Authentication Layer** | User registration, login, session management | FastAPI, bcrypt |
 | **Database Layer** | Persistent storage of users, sessions, documents, messages | MongoDB |
 | **RAG Engine** | Document processing, chunking, semantic search, context retrieval | PyMuPDF, SentenceTransformer, LangChain |
 | **LLM Interface** | Integration with local language models | Ollama, LangChain-Ollama |
@@ -232,10 +232,8 @@ MONGODB_URI=mongodb://localhost:27017/chatbot
 MONGODB_DB_NAME=pdf_rag_chatbot
 
 # Authentication (Change in production!)
-JWT_SECRET_KEY=your-secret-key-change-in-production
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=480
-REFRESH_TOKEN_EXPIRE_DAYS=7
+# This application uses server-side sessions instead of JWTs.
+# Configure session cleanup and expiration via SESSION_* settings (.env)
 
 # AI Configuration
 OLLAMA_BASE_URL=http://localhost:11434
@@ -257,12 +255,9 @@ LOG_LEVEL=INFO
 LOG_FILE=./logs/app.log
 ```
 
-### Generate Secure JWT Secret
+### Session usage
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-# Output: copy-this-to-JWT_SECRET_KEY
-```
+The app uses server-side sessions (session id strings). After logging in you will receive a `session_id` you can use when calling protected endpoints (for example pass it as a header `X-Session-Id: <session_id>` or as a query parameter `?session_id=<session_id>`).
 
 ## 📚 API Documentation
 
@@ -298,37 +293,23 @@ Content-Type: application/json
   "password": "securepassword123"
 }
 
-Response:
+Response (session-based):
 {
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "status": "success",
+  "message": "Login successful",
   "user_id": "uuid",
-  "expires_in": 28800
+  "session_id": "uuid"
 }
 ```
 
-#### Refresh Token
-```http
-POST /auth/refresh
-Content-Type: application/json
-
-{
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-}
-
-Response:
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "expires_in": 28800
-}
-```
+<!-- Refresh tokens removed. Session-based authentication uses server-side sessions and session invalidation. -->
 
 ### PDF Operations
 
 #### Upload PDF
 ```http
 POST /pdf/upload
-Authorization: Bearer <access_token>
+Provide your session id in the header `X-Session-Id: <session_id>` or as query parameter `?session_id=<session_id>`
 Content-Type: multipart/form-data
 
 {
@@ -352,7 +333,7 @@ Response:
 #### Send Chat Message
 ```http
 POST /chat/send
-Authorization: Bearer <access_token>
+Use `X-Session-Id: <session_id>` header or `session_id` query param.
 Content-Type: application/json
 
 {
@@ -379,7 +360,7 @@ Response:
 #### Get Chat History
 ```http
 GET /chat/sessions/{user_id}
-Authorization: Bearer <access_token>
+Use `X-Session-Id: <session_id>` header or `session_id` query param.
 
 Response:
 {
@@ -400,7 +381,7 @@ Response:
 #### Generate Mindmap
 ```http
 POST /mindmap/generate
-Authorization: Bearer <access_token>
+Use `X-Session-Id: <session_id>` header or `session_id` query param.
 Content-Type: application/json
 
 {
@@ -420,7 +401,7 @@ Response:
 #### Generate Podcast
 ```http
 POST /mindmap/podcast
-Authorization: Bearer <access_token>
+Use `X-Session-Id: <session_id>` header or `session_id` query param.
 Content-Type: application/json
 
 {
@@ -532,7 +513,7 @@ ws.addEventListener('open', (event) => {
 ```
 pdf-rag-chatbot-v2/
 ├── pdfreader.py                 # Main FastAPI application
-├── auth.py                      # Authentication logic & JWT management
+├── auth.py                      # Authentication logic & session management
 ├── config.py                    # Configuration management
 ├── db_manager.py               # MongoDB abstraction layer
 ├── ai_engine.py                # RAG & LLM integration
@@ -563,7 +544,7 @@ pdf-rag-chatbot-v2/
 | File | Purpose | Key Functions |
 |------|---------|--------------|
 | `pdfreader.py` | Main app entry point | FastAPI app initialization, route registration |
-| `auth.py` | Authentication system | User registration/login, JWT tokens, session management |
+| `auth.py` | Authentication system | User registration/login, session management |
 | `db_manager.py` | Database abstraction | MongoDB CRUD operations, data persistence |
 | `ai_engine.py` | AI/ML operations | PDF processing, embedding, LLM integration, RAG |
 | `config.py` | Configuration | Environment loading, settings validation |
@@ -723,19 +704,7 @@ CUDA out of memory or insufficient RAM
 - Check GPU availability: `torch.cuda.is_available()`
 - Pre-compute and cache embeddings
 
-#### 5. JWT Token Expired
-```
-Error: "Token has expired"
-```
-
-**Solution:**
-```python
-# Use refresh endpoint to get new token
-POST /auth/refresh
-{
-  "refresh_token": "..."
-}
-```
+<!-- Refresh tokens removed in session-only mode. Use session management and session renewal/invalidation instead. -->
 
 ### Debug Checklist
 

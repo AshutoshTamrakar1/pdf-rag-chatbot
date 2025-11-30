@@ -1,8 +1,63 @@
 import logging
+import httpx
 import asyncio
 import os
 import fitz         # PyMuPDF
 import torch
+
+#Compatibility shim: sentence-transformers imports `cached_download` from
+#huggingface_hub in some versions. Some environments have a newer/older
+#huggingface_hub that doesn't expose cached_download directly. Add a
+#fallback shim so imports work regardless of installed huggingface_hub.
+import importlib
+_hf = None
+try:
+    _hf = importlib.import_module("huggingface_hub")
+    # If cached_download is missing, provide a backward-compatible shim that
+    # accepts the broad kwargs sentence-transformers may pass (including 'url').
+    if not getattr(_hf, "cached_download", None):
+        from huggingface_hub import hf_hub_download
+        import inspect
+        import requests
+
+        def _cached_download_shim(*args, **kwargs):
+            """Compatibility shim for huggingface_hub.cached_download.
+
+            - If caller provides `url=...` we download the URL directly using requests
+              (this is what older cached_download implementations supported).
+            - Otherwise we delegate to hf_hub_download and filter kwargs to the
+              signature supported by the installed huggingface_hub.
+            """
+            url = kwargs.get("url")
+            if url:
+                # Determine filename preference (sentence-transformers sometimes uses 'force_filename')
+                filename = kwargs.get("force_filename") or kwargs.get("filename") or os.path.basename(url.split("?")[0])
+                cache_dir = kwargs.get("cache_dir") or os.getcwd()
+                os.makedirs(cache_dir, exist_ok=True)
+                target_path = os.path.join(cache_dir, filename)
+
+                force = kwargs.get("force_download") or kwargs.get("force", False)
+                if os.path.exists(target_path) and not force:
+                    return target_path
+
+                resp = requests.get(url, stream=True, timeout=60)
+                resp.raise_for_status()
+                with open(target_path, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            fh.write(chunk)
+                return target_path
+
+            # Delegate to hf_hub_download — only pass args that the function supports
+            sig = inspect.signature(hf_hub_download)
+            acceptable = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            return hf_hub_download(*args, **acceptable)
+
+        setattr(_hf, "cached_download", _cached_download_shim)
+except Exception:
+    # huggingface_hub may not be installed yet — let the normal import errors surface later
+    _hf = None
+
 from sentence_transformers import SentenceTransformer, util
 from typing import List, Dict, AsyncGenerator, Optional, Tuple
 
@@ -161,7 +216,22 @@ async def chat_completion_LlamaModel_ws(text: str, history: List[Dict[str, str]]
         prompt += "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages_to_send])
         prompt += f"\nuser: {text}\nassistant:"
         
-        response = await asyncio.to_thread(llama3_llm.generate, [prompt])
+        try:
+            response = await asyncio.to_thread(llama3_llm.generate, [prompt])
+        except Exception as e:
+            # Detect connection problems to the local LLM service and return
+            # a clearer error that instructs the operator how to fix it.
+            if isinstance(e, (httpx.ConnectError, ConnectionRefusedError, OSError)):
+                logger.error(f"LLM service connection error for Main Chat RAG: {e}")
+                yield None, (
+                    "LLM service unreachable. Ensure the local LLM service (e.g. Ollama) is running "
+                    "and listening (default: localhost:11434). If you're running in Docker or remote host, update the client URL accordingly."
+                )
+                return
+            # otherwise re-raise as an informative error
+            logger.error(f"Main Chat RAG generation failed: {e}", exc_info=True)
+            yield None, f"Error during Main Chat RAG completion: {e}"
+            return
         answer = response.generations[0][0].text.strip()
         yield answer, None
     except Exception as e:
@@ -212,6 +282,12 @@ async def chat_completion_with_pdf_ws(text: str, history: List[Dict[str, str]], 
                 return
             pdf_text = _extract_text_from_pdf(pdf_path)
             chunks = _chunk_text(pdf_text)
+            # Defensive: if chunking returned no chunks, this could break
+            # downstream operations that expect at least one embedding.
+            if not chunks:
+                logger.error(f"No text chunks extracted from PDF: {pdf_path}")
+                yield None, "The associated document could not be processed for context (empty content)."
+                return
             embeddings = embedding_model.encode(chunks, convert_to_tensor=True)
             pdf_rag_cache[pdf_path] = {"chunks": chunks, "embeddings": embeddings}
         cached_data = pdf_rag_cache[pdf_path]
@@ -230,7 +306,19 @@ Question: {text}
 
 Answer:"""
         
-        response = await asyncio.to_thread(llama3_llm.generate, [prompt])
+        try:
+            response = await asyncio.to_thread(llama3_llm.generate, [prompt])
+        except Exception as e:
+            if isinstance(e, (httpx.ConnectError, ConnectionRefusedError, OSError)):
+                logger.error(f"LLM service connection error for Main Chat RAG (multi): {e}")
+                yield None, (
+                    "LLM service unreachable. Ensure the local LLM service (e.g. Ollama) is running "
+                    "and listening (default: localhost:11434). If you're running in Docker or remote host, update the client URL accordingly."
+                )
+                return
+            logger.error(f"Multi-PDF RAG generation failed: {e}", exc_info=True)
+            yield None, f"Error during Multi-PDF RAG completion: {e}"
+            return
         answer = response.generations[0][0].text.strip()
         yield answer, None
     except Exception as e:
@@ -248,8 +336,17 @@ async def chat_completion_with_multiple_pdfs_ws(text: str, history: List[Dict[st
             if pdf_path not in pdf_rag_cache:
                 pdf_text = _extract_text_from_pdf(pdf_path)
                 chunks = _chunk_text(pdf_text)
-                embeddings = embedding_model.encode(chunks, convert_to_tensor=True)
+                try:
+                    embeddings = embedding_model.encode(chunks, convert_to_tensor=True)
+                except Exception as e:
+                    # If embeddings could not be produced (e.g., empty tensor list), return an informative error
+                    logger.error(f"Failed to create embeddings for PDF {pdf_path}: {e}", exc_info=True)
+                    yield None, f"Error during Main Chat RAG completion: {e}"
+                    return
                 pdf_rag_cache[pdf_path] = {"chunks": chunks, "embeddings": embeddings}
+                if not chunks:
+                    logger.warning(f"No chunks produced for PDF during multi-RAG: {pdf_path}")
+                    continue
             cached_data = pdf_rag_cache[pdf_path]
             context = _get_top_k_chunks(text, cached_data["chunks"], cached_data["embeddings"], k=2)
             all_context_chunks.append(f"Context from {os.path.basename(pdf_path)}:\n{context}")

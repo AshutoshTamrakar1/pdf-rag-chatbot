@@ -12,6 +12,7 @@ from db_manager import (
     update_source_field,
     get_chat_session_by_id
 )
+from fastapi.concurrency import run_in_threadpool
 from ai_engine import (
     generate_mindmap_from_pdf,
     estimate_mindmap_generation_time
@@ -32,8 +33,8 @@ async def generate_mindmap(
     logger.info(f"Generating mindmap for chat session: {request.chat_session_id}, source: {request.source_id}")
     
     try:
-        user_id = validate_session(request.session_id, active_sessions)
-        chat_session_data = get_chat_session_by_id(request.chat_session_id, user_id)
+        user_id = await validate_session(request.session_id, active_sessions)
+        chat_session_data = await get_chat_session_by_id(request.chat_session_id, user_id)
         
         if not chat_session_data:
             raise ThreadNotFoundError()
@@ -61,11 +62,7 @@ async def generate_mindmap(
         mindmap_path.write_text(markdown, encoding="utf-8")
         
         # Update database
-        update_source_field(
-            request.chat_session_id,
-            request.source_id,
-            {"mindmap.path": str(mindmap_path)}
-        )
+        await update_source_field(request.chat_session_id, request.source_id, {"mindmap.path": str(mindmap_path)})
 
         logger.info(f"Mindmap generated and saved to: {mindmap_path}")
         return MindmapResponse(

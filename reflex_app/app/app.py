@@ -44,14 +44,14 @@ class AuthState(rx.State):
                 print(f"[LOGIN] Response status: {response.status_code}")
                 if response.status_code == 200:
                     data = response.json()
-                    self.token = data["access_token"]
+                    # session-only auth: backend returns session_id and user_id
                     self.session_id = data["session_id"]
                     self.user_id = data["user_id"]
                     self.success = "Login successful!"
                     print(f"[LOGIN SUCCESS] User {self.user_id} logged in, session: {self.session_id}")
                     
                     # Redirect with session info in URL (will be picked up by MainState)
-                    yield rx.redirect(f"/chat?session_id={self.session_id}&user_id={self.user_id}&token={self.token}")
+                    yield rx.redirect(f"/chat?session_id={self.session_id}&user_id={self.user_id}")
                 else:
                     error_data = response.json()
                     self.error = error_data.get("detail", "Login failed")
@@ -146,9 +146,8 @@ class MainState(rx.State):
     available_models: list[str] = []
     selected_model: str = "llama3"
     
-    def set_auth_from_login(self, token: str, session_id: str, user_id: str):
-        """Called to set auth data from login page"""
-        self.token = token
+    def set_auth_from_login(self, session_id: str, user_id: str):
+        """Called to set auth data from login page (session-only auth)"""
         self.session_id = session_id
         self.user_id = user_id
         print(f"[MAIN] Auth set - session_id: {self.session_id}")
@@ -165,7 +164,7 @@ class MainState(rx.State):
                 print(f"[MAIN] New session detected, clearing old state")
                 self.session_id = new_session
                 self.user_id = self.router.page.params.get("user_id", "")
-                self.token = self.router.page.params.get("token", "")
+                # token removed in session-only flow
                 self.current_chat_id = ""  # Clear old chat
                 self.messages = []
                 self.chat_sessions = []
@@ -213,9 +212,9 @@ class MainState(rx.State):
                     self.uploaded_pdfs = []
                     self.active_source_ids = []
                     
-                    # Add to sessions list
+                    # Add to sessions list (use chat_session_id key)
                     self.chat_sessions.append({
-                        "id": self.current_chat_id,
+                        "chat_session_id": self.current_chat_id,
                         "title": self.current_chat_title
                     })
                     print(f"[CREATE_CHAT SUCCESS] Created chat session: {self.current_chat_id}")
@@ -551,7 +550,7 @@ class MainState(rx.State):
                         self.current_chat_title = new_title
                         # Update in sessions list
                         for session in self.chat_sessions:
-                            if session["id"] == self.current_chat_id:
+                            if session.get("chat_session_id") == self.current_chat_id:
                                 session["title"] = new_title
                         print(f"[TITLE] Updated to: {new_title}")
         except Exception as e:

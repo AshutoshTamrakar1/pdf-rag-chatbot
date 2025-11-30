@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import validator, Field
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     Centralized application configuration using Pydantic BaseSettings.
     
     Note: Some configuration values are stored directly in other files:
-    - JWT settings (SECRET_KEY, ALGORITHM, token expiry) → auth.py
+    - Session-related behavior (session cleanup/max age) → auth.py / db_manager.py
     - AI model configurations (model names, prompts) → ai_engine.py
     - RAG parameters (chunk size, overlap, top_k) → ai_engine.py
     - TTS/STT settings → services/local_audio.py

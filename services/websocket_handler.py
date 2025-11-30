@@ -105,7 +105,7 @@
 #         chat_session_id = str(uuid.uuid4())
         
 #         new_chat_session = {
-#             "id": chat_session_id,
+#             "chat_session_id": chat_session_id,
 #             "user_id": user_id,
 #             "title": "New Chat",
 #             "created_at": datetime.utcnow().isoformat(),

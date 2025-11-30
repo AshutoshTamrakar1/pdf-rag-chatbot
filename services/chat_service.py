@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from typing import Dict, Any, Optional, List, AsyncGenerator, Tuple
 from datetime import datetime
 
@@ -115,8 +116,8 @@ async def send_chat(
     logger.info(f"Processing chat request for chat session: {request.chat_session_id}; model={request.model}")
 
     try:
-        user_id = validate_session(request.session_id, active_sessions)
-        chat_session_data = get_chat_session_by_id(request.chat_session_id, user_id)
+        user_id = await validate_session(request.session_id, active_sessions)
+        chat_session_data = await get_chat_session_by_id(request.chat_session_id, user_id)
 
         if not chat_session_data:
             raise ThreadNotFoundError()
@@ -153,22 +154,11 @@ async def send_chat(
 
         # Save based on chat type
         if len(request.active_source_ids) > 1:
-            add_turn_to_multi_source_chat(
-                request.chat_session_id,
-                request.active_source_ids,
-                new_turn
-            )
+            await add_turn_to_multi_source_chat(request.chat_session_id, request.active_source_ids, new_turn)
         elif len(request.active_source_ids) == 1:
-            add_question_to_source(
-                request.chat_session_id,
-                request.active_source_ids[0],
-                new_turn
-            )
+            await add_question_to_source(request.chat_session_id, request.active_source_ids[0], new_turn)
         else:
-            add_turn_to_general_chat(
-                request.chat_session_id,
-                new_turn
-            )
+            await add_turn_to_general_chat(request.chat_session_id, new_turn)
 
         logger.info(f"Chat turn saved with ID: {turn_id}")
         
@@ -187,7 +177,7 @@ async def send_chat(
                 
                 if new_title:
                     from db_manager import rename_chat_session_title
-                    rename_chat_session_title(request.chat_session_id, new_title)
+                    await rename_chat_session_title(request.chat_session_id, new_title)
                     logger.info(f"Chat title updated to: {new_title}")
             except Exception as e:
                 logger.error(f"Failed to generate chat title: {e}")

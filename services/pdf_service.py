@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from pathlib import Path
@@ -32,11 +33,11 @@ async def create_chat_session(
     logger.info(f"Creating new chat session for session: {session_id}")
     
     try:
-        user_id = validate_session(session_id, active_sessions)
+        user_id = await validate_session(session_id, active_sessions)
         chat_session_id = str(uuid.uuid4())
         
         new_chat_session = {
-            "id": chat_session_id,
+            "chat_session_id": chat_session_id,
             "user_id": user_id,
             "title": "New Chat",
             "created_at": datetime.utcnow().isoformat(),
@@ -44,7 +45,8 @@ async def create_chat_session(
             "sources": []
         }
         
-        create_chat_session_in_db(new_chat_session)
+        # Database write — use async db_manager (Motor)
+        await create_chat_session_in_db(new_chat_session)
         
         return JSONResponse(
             status_code=200,
@@ -67,8 +69,8 @@ async def get_chat_session(
     logger.info(f"Fetching chat session: {chat_session_id}")
     
     try:
-        user_id = validate_session(session_id, active_sessions)
-        chat_session_data = get_chat_session_by_id(chat_session_id, user_id)
+        user_id = await validate_session(session_id, active_sessions)
+        chat_session_data = await get_chat_session_by_id(chat_session_id, user_id)
         
         if not chat_session_data:
             raise ThreadNotFoundError()
@@ -102,11 +104,11 @@ async def upload_pdf(
     
     try:
         logger.debug(f"Validating session: {session_id[:20]}...")
-        user_id = validate_session(session_id, active_sessions)
+        user_id = await validate_session(session_id, active_sessions)
         logger.debug(f"Session valid, user_id: {user_id}")
         
         logger.debug(f"Fetching chat session: {chat_session_id}")
-        chat_session_data = get_chat_session_by_id(chat_session_id, user_id)
+        chat_session_data = await get_chat_session_by_id(chat_session_id, user_id)
         
         if not chat_session_data:
             logger.error(f"Chat session not found: {chat_session_id}")
@@ -133,14 +135,15 @@ async def upload_pdf(
             "podcast": {"data": None}
         }
 
-        add_source_to_chat_session(chat_session_id, new_source)
-        add_filename_to_uploaded_list(chat_session_id, file.filename)
+        # DB writes — use async db_manager functions
+        await add_source_to_chat_session(chat_session_id, new_source)
+        await add_filename_to_uploaded_list(chat_session_id, file.filename)
 
         # Update chat session title if needed
         new_title = None
         if not chat_session_data.get('sources') and chat_session_data.get('title') == "New Chat":
             new_title = file.filename
-            update_chat_session_field(chat_session_id, {'title': new_title})
+            await update_chat_session_field(chat_session_id, {'title': new_title})
             logger.info(f"Updated chat session title to: {new_title}")
 
         logger.info(f"PDF upload successful: {file.filename}")

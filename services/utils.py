@@ -23,7 +23,7 @@ class RequestSimulator:
     async def json(self) -> Dict[str, Any]:
         return self._json
 
-def validate_session(session_id: str, active_sessions: Dict) -> str:
+async def validate_session(session_id: str, active_sessions: Dict) -> str:
     """Validate session and return user_id. Checks both in-memory and database."""
     if not session_id:
         logger.warning("Session validation failed: No session_id provided")
@@ -41,7 +41,7 @@ def validate_session(session_id: str, active_sessions: Dict) -> str:
     logger.debug(f"Session not in memory, checking database: {session_id[:20]}...")
     try:
         from db_manager import get_session
-        session_data = get_session(session_id)
+        session_data = await get_session(session_id)
         if session_data and session_data.get("user_id"):
             logger.info(f"Session found in database, re-populating cache: {session_id[:20]}...")
             # Re-populate in-memory cache

@@ -10,7 +10,8 @@ from services.mindmap_service import router as mindmap_router
 
 # Import auth and config
 from auth import router as auth_router
-from config import get_settings
+from config import get_settings, initialize_config
+from db_manager import _db_manager
 from logging_config import init_from_settings, get_logger
 
 # Initialize logging before anything else
@@ -45,8 +46,18 @@ app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    settings = get_settings()
-    logger.info("Service started with modular architecture")
+    # Initialize configuration and directories
+    settings = initialize_config()
+
+    # Connect async Motor DB manager
+    try:
+        logger.info("Connecting to MongoDB (async) on startup")
+        await _db_manager.connect(settings.MONGODB_URI, settings.MONGODB_DB_NAME)
+        logger.info("MongoDB async manager connected")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB on startup: {e}")
+        # Re-raise to prevent app from starting in a bad state
+        raise
 
 # Health check endpoint
 @app.get("/health")
@@ -74,3 +85,13 @@ if __name__ == "__main__":
         timeout_keep_alive=600,  # 10 minutes keep-alive for long operations
         log_level="info"
     )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Graceful shutdown: close MongoDB connection"""
+    try:
+        logger.info("Shutting down — closing MongoDB connection")
+        await _db_manager.close()
+    except Exception as e:
+        logger.error(f"Error while closing MongoDB connection: {e}")

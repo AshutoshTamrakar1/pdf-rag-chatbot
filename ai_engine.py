@@ -62,6 +62,13 @@ from sentence_transformers import SentenceTransformer, util
 from typing import List, Dict, AsyncGenerator, Optional, Tuple
 
 from langchain_ollama import OllamaLLM
+from prompts import (
+    SYSTEM_PROMPT,
+    RAG_SYSTEM_PROMPT,
+    MINDMAP_PROMPT_TEMPLATE,
+    TITLE_GENERATION_PROMPT,
+    HISTORY_LENGTH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,57 +106,13 @@ def get_podcast_model():
     """Get the dedicated podcast generation model (phi3)"""
     return phi3_llm
 
-# --- Podcast Generation (DISABLED) ---
-'''
-PODCAST_SCRIPT_PROMPT_TEMPLATE = """You are a professional podcast scriptwriter. Create an engaging, informative dialogue between two podcast hosts named Jess and Leo discussing the topics below.
-
-RULES:
-1. Write natural, conversational dialogue that explains concepts clearly
-2. Include questions and follow-up discussions that build understanding
-3. Use proper grammar and punctuation
-4. Format EXACTLY as: Jess: [dialogue] Leo: [dialogue]
-5. Each speaker should have 2-4 sentences per turn
-6. Make it educational yet entertaining - like a real podcast
-7. Include brief [laughs] or [pause] for natural flow
-8. Start with a greeting: "Welcome to our podcast about..."
-9. End with: "Thanks for listening! If you'd like to implement this content in your application, contact our team."
-
-TOPICS TO DISCUSS:
-{mindmap_md}
-
-IMPORTANT: Create a coherent discussion that covers the main points from the topics above. Make it sound like real podcast hosts discussing this topic naturally.
-
-Now write the podcast script:
-"""
-'''
+# --- Podcast prompt (moved) ---
+# The PODCAST_SCRIPT_PROMPT_TEMPLATE used to live here but was moved to `prompts.py`
+# (see `prompts.PODCAST_SCRIPT_PROMPT_TEMPLATE`). Keep the code here minimal and import
+# the template from prompts.py when enabling podcast generation features.
 
 # --- Mindmap Generation Prompt ---
-MINDMAP_PROMPT_TEMPLATE = """You are an expert at creating hierarchical mindmaps. Analyze the following document text and create a comprehensive mindmap in Mermaid diagram syntax.
-
-REQUIREMENTS:
-1. Use ONLY Mermaid mindmap syntax - start with "mindmap" on first line
-2. Use proper indentation with 2 spaces per level
-3. Root node format: root((Title))
-4. Create 3-5 main branches (key topics)
-5. Each main branch should have 2-3 sub-branches
-6. Keep labels concise (3-7 words max)
-7. Output ONLY valid Mermaid code - no explanations, no markdown formatting
-
-MERMAID SYNTAX (FOLLOW THIS EXACTLY):
-mindmap
-  root((Central Topic))
-    Main Topic 1
-      Subtopic 1.1
-      Subtopic 1.2
-    Main Topic 2
-      Subtopic 2.1
-      Subtopic 2.2
-
-DOCUMENT TEXT:
-{pdf_text}
-
-Generate ONLY the Mermaid mindmap code:
-"""
+# Imported from prompts.py (MINDMAP_PROMPT_TEMPLATE)
 
 # --- Estimation functions ---
 def estimate_mindmap_generation_time(pdf_path: str) -> int:
@@ -457,27 +420,6 @@ async def generate_chat_title(messages_for_title_generation: List[Dict[str, str]
         logger.error(f"Failed to generate chat title: {e}", exc_info=True)
         return None
 
-# --- Constants ---
-SYSTEM_PROMPT  = """You are a helpful AI assistant. Provide clear, accurate, and well-structured answers based on the conversation history. When asked to summarize, organize information logically with bullet points or sections."""
-
-RAG_SYSTEM_PROMPT = """You are an expert document assistant. Analyze the provided context carefully and answer the user's question accurately.
-
-RULES:
-1. Use ONLY information from the provided context
-2. When summarizing, organize information with clear sections and bullet points
-3. Be comprehensive but concise - highlight key points
-4. If asked to summarize, structure your response with headings
-5. If the answer is not in the context, say "I cannot answer this based on the provided document."
-6. Do not copy-paste text directly - synthesize and organize the information
-7. Provide well-formatted, easy-to-read responses"""
-
-TITLE_GENERATION_PROMPT = """Based on the following conversation, generate a short, concise title (4-5 words max).
-Do not use any quotation marks or labels in your response. Just provide the title text.
-
-CONVERSATION:
-{conversation_text}
-"""
-
-HISTORY_LENGTH = 10
+# Prompt constants are imported from prompts.py at the top of this file
 
 logger.info("ai_engine.py loaded with local Ollama models: llama3, gemma, phi3.")

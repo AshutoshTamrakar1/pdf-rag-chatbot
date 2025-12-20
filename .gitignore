@@ -6,11 +6,65 @@ __pycache__/
 .Python
 *.so
 .pytest_cache/
+*.egg-info/
+dist/
+build/
 
-# Local env and generated summary
-.env.example
-COMPLETION_SUMMARY.md
+# Environment files
+.env
+.env.local
+.env.production
+*.env
+
+# Database files
+chroma_db/
+test_chroma/
+*.sqlite3
+*.db
 
 # Uploaded files and temporary data
 uploads/
 logs/
+podcasts/
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python virtual environments
+venv/
+env/
+.venv/
+ENV/
+.conda/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Documentation builds
+docs/_build/
+site/
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+~$*

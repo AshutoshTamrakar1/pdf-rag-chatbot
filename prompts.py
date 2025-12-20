@@ -1,8 +1,20 @@
 """Centralized prompt and template definitions for the PDF RAG chatbot.
 
 Move prompts here so they can be reused, tested, and edited in one place.
+Uses LangChain prompt templates for better structure and composability.
 """
 from typing import Final
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder,
+    PromptTemplate
+)
+
+# ============================================================================
+# LEGACY STRING PROMPTS (Kept for backward compatibility during migration)
+# ============================================================================
 
 # System-level prompt for general chat completions
 SYSTEM_PROMPT: Final[str] = (
@@ -24,6 +36,43 @@ RAG_SYSTEM_PROMPT: Final[str] = (
     "6. Do not copy-paste text directly - synthesize and organize the information\n"
     "7. Provide well-formatted, easy-to-read responses"
 )
+
+# ============================================================================
+# LANGCHAIN PROMPT TEMPLATES
+# ============================================================================
+
+# General chat prompt template with system message and history
+CHAT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(SYSTEM_PROMPT),
+    MessagesPlaceholder(variable_name="chat_history"),
+    HumanMessagePromptTemplate.from_template("{input}")
+])
+
+# RAG prompt template with system message, context, and history
+RAG_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(RAG_SYSTEM_PROMPT),
+    SystemMessagePromptTemplate.from_template(
+        "Context from the document:\n{context}\n\n"
+        "Use the above context to answer the following question."
+    ),
+    MessagesPlaceholder(variable_name="chat_history", optional=True),
+    HumanMessagePromptTemplate.from_template("{input}")
+])
+
+# Multi-PDF RAG prompt template
+MULTI_PDF_RAG_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(RAG_SYSTEM_PROMPT),
+    SystemMessagePromptTemplate.from_template(
+        "Context from multiple documents:\n{context}\n\n"
+        "Use the above context to answer the following question."
+    ),
+    MessagesPlaceholder(variable_name="chat_history", optional=True),
+    HumanMessagePromptTemplate.from_template("{input}")
+])
+
+# ============================================================================
+# SPECIALIZED PROMPT TEMPLATES (Non-chat use cases)
+# ============================================================================
 
 # Mindmap generation prompt template (phi3 model)
 MINDMAP_PROMPT_TEMPLATE: Final[str] = (
@@ -58,7 +107,14 @@ PODCAST_SCRIPT_PROMPT_TEMPLATE: Final[str] = (
     "Now write the podcast script:\n"
 )
 
-# Title generation prompt for LLM
+# Title generation prompt template
+TITLE_GENERATION_PROMPT_TEMPLATE = PromptTemplate.from_template(
+    "Based on the following conversation, generate a short, concise title (4-5 words max).\n"
+    "Do not use any quotation marks or labels in your response. Just provide the title text.\n\n"
+    "CONVERSATION:\n{conversation_text}\n"
+)
+
+# Legacy string version for backward compatibility
 TITLE_GENERATION_PROMPT: Final[str] = (
     "Based on the following conversation, generate a short, concise title (4-5 words max).\n"
     "Do not use any quotation marks or labels in your response. Just provide the title text.\n\n"

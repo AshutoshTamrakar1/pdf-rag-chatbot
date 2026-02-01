@@ -1,0 +1,16 @@
+# Temporary and cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# Local env and generated summary
+.env.example
+COMPLETION_SUMMARY.md
+
+# Uploaded files and temporary data
+uploads/
+logs/

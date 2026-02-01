@@ -1,99 +1,42 @@
-# ==============================================================================
-# PDF RAG Chatbot v2.0 - Python Dependencies
-# ==============================================================================
-# This file contains all required Python packages for the PDF RAG Chatbot project.
-# Install using: pip install -r requirements.txt
+# Core libraries
+langchain>=0.1.14
+langchain-core>=0.1.7
+langchain-community>=0.0.24
+langchain-ollama>=0.0.6
 
-# ==============================================================================
-# WEB FRAMEWORK & API
-# ==============================================================================
-fastapi==0.104.1
-uvicorn==0.24.0
-websockets==12.0
-python-multipart==0.0.6
-aiofiles==23.2.1
+# Embeddings
+sentence-transformers>=2.2.2
 
-# ==============================================================================
-# DATA & CONFIGURATION
-# ==============================================================================
-pydantic==2.4.2
-pydantic-settings==2.0.3
-pydantic[email]==2.4.2
-python-dotenv==1.0.0
+# Vector store
+faiss-cpu>=1.7.4
 
-# ==============================================================================
-# DATABASE
-# ==============================================================================
-motor==3.6.0
-# Motor 3.6.0 requires pymongo >=4.9 and <4.10 — pin to a compatible 4.9.x
-pymongo==4.9.2
+# PDF parsing
+pdfplumber>=0.10.0
+PyMuPDF>=1.23.6
+pypdf>=3.17.0
 
-# ==============================================================================
-# AUTHENTICATION & SECURITY
-# ==============================================================================
-bcrypt==4.1.1
-cryptography==41.0.7
+# Image processing
+Pillow>=10.0.0
 
-# ==============================================================================
-# MACHINE LEARNING & NLP
-# ==============================================================================
-torch==2.1.1
-sentence-transformers==2.2.2
+# FastAPI & server
+fastapi>=0.110.0
+uvicorn>=0.29.0
 
-# ==============================================================================
-# DOCUMENT PROCESSING
-# ==============================================================================
-PyMuPDF==1.23.8
+# Data handling
+pandas>=2.2.2
 
-# ==============================================================================
-# LLM & LANGUAGE MODEL INTEGRATION
-# ==============================================================================
-langchain
-langchain-ollama
+# Optional: OCR
+pytesseract>=0.3.10
 
-# ==============================================================================
-# AUDIO PROCESSING
-# ==============================================================================
-pyttsx3==2.90
-faster-whisper
-SpeechRecognition==3.10.0
-pydub==0.25.1
+# Other tools (remove if not used)
+rich>=13.7.0
 
-# ==============================================================================
-# UTILITIES
-# ==============================================================================
-requests==2.31.0
-python-dateutil==2.8.2
-
-# ==============================================================================
-# DEVELOPMENT & TESTING (Optional)
-# ==============================================================================
-# Uncomment these for development
-# pytest==7.4.3
-# pytest-asyncio==0.21.1
-# black==23.11.0
-# flake8==6.1.0
-# isort==5.12.0
-# mypy==1.7.0
-
-# ==============================================================================
-# NOTES
-# ==============================================================================
-# 1. Ollama (LLM engine) must be installed separately and run as a service
-#    Download from: https://ollama.ai
-#
-# 2. Required Ollama models (pull manually or auto-download):
-#    - ollama pull llama3
-#    - ollama pull gemma
-#    - ollama pull phi3
-#
-# 3. For production, consider:
-#    - Using a proper session store (Redis) instead of in-memory
-#    - Using PostgreSQL instead of MongoDB if relational data is preferred
-#    - Running Ollama in a container
-#    - Using a proper task queue (Celery) for async tasks
-#
-# 4. Audio processing requires system dependencies:
-#    - Linux: sudo apt-get install portaudio19-dev ffmpeg
-#    - macOS: brew install portaudio ffmpeg
-#    - Windows: Install ffmpeg and add to PATH
+# Remove unused or ambiguous packages:
+# unstructured
+# unstructured_inference
+# pdfminer
+# pi_heif
+# pdf2image
+# fitz (use PyMuPDF instead)
+# frontend
+# tools

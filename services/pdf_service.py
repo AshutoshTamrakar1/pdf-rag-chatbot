@@ -19,6 +19,7 @@ from db_manager import (
 from auth import active_sessions
 import uuid
 from logging_config import get_logger, log_exceptions
+from callbacks import LoggingCallbackHandler
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["PDF Operations"])

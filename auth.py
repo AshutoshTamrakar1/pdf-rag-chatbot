@@ -231,18 +231,20 @@ async def register(request: UserRegisterRequest):
     logger.info(f"Registration attempt for email: {request.email}")
     
     try:
-        # Check if user already exists (run DB ops in threadpool)
+        # Normalize inputs (trim whitespace and lowercase email) and check if user already exists
         from db_manager import _db_manager
         # Use async Motor client directly
+        email_clean = request.email.strip().lower()
+        username_clean = request.username.strip()
         existing_user = await _db_manager.db[COLLECTION_USERS].find_one({
             "$or": [
-                {"email": request.email},
-                {"username": request.username}
+                {"email": email_clean},
+                {"username": username_clean}
             ]
         })
         
         if existing_user:
-            if existing_user.get("email") == request.email:
+            if existing_user.get("email") == email_clean:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Email already registered"
@@ -255,12 +257,12 @@ async def register(request: UserRegisterRequest):
         
         # Create new user
         user_id = str(uuid.uuid4())
-        hashed_password = hash_password(request.password)
+        hashed_password = hash_password(request.password.strip())
         
         user_doc = {
             "user_id": user_id,
-            "email": request.email,
-            "username": request.username,
+            "email": email_clean,
+            "username": username_clean,
             "password_hash": hashed_password,
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
@@ -297,12 +299,14 @@ async def login(request: UserLoginRequest):
     logger.info(f"Login attempt for email: {request.email}")
     
     try:
-        # Find user by email (run DB ops in threadpool)
+        # Normalize inputs and find user by email
         from db_manager import _db_manager
-        user = await _db_manager.db[COLLECTION_USERS].find_one({"email": request.email})
+        email_clean = request.email.strip().lower()
+        password_clean = request.password.strip()
+        user = await _db_manager.db[COLLECTION_USERS].find_one({"email": email_clean})
         
         if not user:
-            logger.warning(f"Login failed: user not found for email {request.email}")
+            logger.warning(f"Login failed: user not found for email {email_clean}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
@@ -316,8 +320,8 @@ async def login(request: UserLoginRequest):
             )
         
         # Verify password
-        if not verify_password(request.password, user.get("password_hash", "")):
-            logger.warning(f"Login failed: invalid password for email {request.email}")
+        if not verify_password(password_clean, user.get("password_hash", "")):
+            logger.warning(f"Login failed: invalid password for email {email_clean}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"

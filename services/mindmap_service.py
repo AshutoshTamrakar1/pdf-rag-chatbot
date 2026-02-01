@@ -17,6 +17,8 @@ from ai_engine import (
     generate_mindmap_from_pdf,
     estimate_mindmap_generation_time
 )
+from output_parsers import MindmapOutputParser, MindmapOutput
+from callbacks import create_callback_manager
 from auth import active_sessions
 from logging_config import get_logger, log_exceptions
 
@@ -52,10 +54,22 @@ async def generate_mindmap(
         estimated_time = estimate_mindmap_generation_time(pdf_path)
         logger.info(f"Estimated generation time: {estimated_time} seconds")
 
+        # Generate mindmap with callback support for monitoring
         markdown, error = await generate_mindmap_from_pdf(pdf_path)
         if error:
             logger.error(f"Error generating mindmap: {error}")
             raise HTTPException(status_code=500, detail=error)
+
+        # Validate mindmap with parser
+        try:
+            mindmap_parser = MindmapOutputParser()
+            validated_mindmap = mindmap_parser.parse(markdown)
+            logger.info(f"Mindmap validated: {validated_mindmap.node_count} nodes, valid={validated_mindmap.is_valid}")
+            # Use validated markdown
+            markdown = validated_mindmap.markdown
+        except Exception as parse_error:
+            logger.warning(f"Mindmap validation warning: {parse_error}. Using raw output.")
+            # Continue with raw markdown if validation fails
 
         # Save mindmap
         mindmap_path = Path(pdf_path).parent / "mindmap.md"

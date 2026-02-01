@@ -57,6 +57,41 @@ class Settings(BaseSettings):
     )
     
     # ========================================================================
+    # VECTOR STORE SETTINGS (ChromaDB)
+    # ========================================================================
+    
+    CHROMA_PERSIST_DIR: str = Field(
+        default="./chroma_db",
+        env="CHROMA_PERSIST_DIR",
+        description="ChromaDB persistent storage directory"
+    )
+    CHROMA_COLLECTION_NAME: str = Field(
+        default="pdf_documents",
+        env="CHROMA_COLLECTION_NAME",
+        description="Default ChromaDB collection name"
+    )
+    EMBEDDING_MODEL_NAME: str = Field(
+        default="all-MiniLM-L6-v2",
+        env="EMBEDDING_MODEL_NAME",
+        description="HuggingFace embedding model name"
+    )
+    VECTOR_STORE_SEARCH_TYPE: str = Field(
+        default="similarity",
+        env="VECTOR_STORE_SEARCH_TYPE",
+        description="Vector store search type: similarity, mmr, or similarity_score_threshold"
+    )
+    VECTOR_STORE_K: int = Field(
+        default=3,
+        env="VECTOR_STORE_K",
+        description="Number of documents to retrieve (k)"
+    )
+    VECTOR_STORE_FETCH_K: int = Field(
+        default=10,
+        env="VECTOR_STORE_FETCH_K",
+        description="Number of documents to fetch for MMR (fetch_k)"
+    )
+    
+    # ========================================================================
     # LOGGING SETTINGS
     # ========================================================================
     
@@ -277,6 +312,7 @@ def create_upload_directories():
     directories = [
         settings.UPLOAD_DIR,
         settings.PODCAST_OUTPUT_DIR,
+        settings.CHROMA_PERSIST_DIR,
         "./logs"
     ]
     

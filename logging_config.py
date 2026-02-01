@@ -5,6 +5,7 @@ from typing import Optional, Callable, Any
 from config import get_settings
 import functools
 import asyncio
+from fastapi import HTTPException as FastAPIHTTPException
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -73,6 +74,11 @@ def log_exceptions(_func=None, logger: Optional[logging.Logger] = None):
                 return await func(*args, **kwargs)
             except Exception as e:
                 log = logger or logging.getLogger(func.__module__)
+                # Treat FastAPI HTTPExceptions as expected control-flow (e.g., auth failures)
+                # Log them at WARNING without full traceback to avoid noisy ERROR logs.
+                if isinstance(e, FastAPIHTTPException):
+                    log.warning("HTTPException in %s: %s", getattr(func, "__name__", str(func)), getattr(e, "detail", str(e)))
+                    raise
                 log.exception("Unhandled exception in %s: %s", getattr(func, "__name__", str(func)), e)
                 raise
 
@@ -82,6 +88,11 @@ def log_exceptions(_func=None, logger: Optional[logging.Logger] = None):
                 return func(*args, **kwargs)
             except Exception as e:
                 log = logger or logging.getLogger(func.__module__)
+                # Treat FastAPI HTTPExceptions as expected control-flow (e.g., auth failures)
+                # Log them at WARNING without full traceback to avoid noisy ERROR logs.
+                if isinstance(e, FastAPIHTTPException):
+                    log.warning("HTTPException in %s: %s", getattr(func, "__name__", str(func)), getattr(e, "detail", str(e)))
+                    raise
                 log.exception("Unhandled exception in %s: %s", getattr(func, "__name__", str(func)), e)
                 raise
 

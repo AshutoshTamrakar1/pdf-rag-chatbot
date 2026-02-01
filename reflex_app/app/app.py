@@ -28,7 +28,9 @@ class AuthState(rx.State):
         self.error = ""
         self.success = ""
         
-        if not self.email or not self.password:
+        email = self.email.strip()
+        password = self.password.strip()
+        if not email or not password:
             self.error = "Email and password are required"
             print(f"[LOGIN ERROR] {self.error}")
             return
@@ -38,7 +40,7 @@ class AuthState(rx.State):
                 print(f"[LOGIN] Sending request to {BACKEND_URL}/auth/login")
                 response = await client.post(
                     f"{BACKEND_URL}/auth/login",
-                    json={"email": self.email, "password": self.password}
+                    json={"email": email.lower(), "password": password}
                 )
                 
                 print(f"[LOGIN] Response status: {response.status_code}")
@@ -66,12 +68,16 @@ class AuthState(rx.State):
         self.error = ""
         self.success = ""
         
-        if not self.email or not self.username or not self.password or not self.confirm_password:
+        email = self.email.strip().lower()
+        username = self.username.strip()
+        password = self.password.strip()
+        confirm_password = self.confirm_password.strip()
+        if not email or not username or not password or not confirm_password:
             self.error = "All fields are required"
             print(f"[REGISTER ERROR] {self.error}")
             return
         
-        if self.password != self.confirm_password:
+        if password != confirm_password:
             self.error = "Passwords do not match"
             print(f"[REGISTER ERROR] {self.error}")
             return
@@ -82,10 +88,10 @@ class AuthState(rx.State):
                 response = await client.post(
                     f"{BACKEND_URL}/auth/register",
                     json={
-                        "email": self.email,
-                        "username": self.username,
-                        "password": self.password,
-                        "confirm_password": self.confirm_password
+                        "email": email,
+                        "username": username,
+                        "password": password,
+                        "confirm_password": confirm_password
                     }
                 )
                 
@@ -956,21 +962,24 @@ def chat_page():
                     rx.vstack(
                         rx.heading("Upload PDF", size="6"),
                         rx.upload(
-                            rx.button("Select PDF File"),
+                            rx.button("Select PDF File", color="black"),
                             id="pdf_upload",
                             accept={"application/pdf": [".pdf"]},
                         ),
                         rx.button(
                             "Upload",
                             on_click=MainState.handle_upload(rx.upload_files(upload_id="pdf_upload")),
+                            color="black",
                         ),
                         rx.button(
                             "Close",
                             on_click=MainState.toggle_upload,
+                            color="black",
                         ),
                         spacing="3",
                     ),
                     bg="white",
+                    color="gray.800",
                     padding="2em",
                     border_radius="0.5em",
                     box_shadow="lg",
